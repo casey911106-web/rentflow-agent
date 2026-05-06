@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { getToken } from '../lib/api';
+import { api, clearToken, getToken } from '../lib/api';
 
 export default function IndexRedirect() {
   const router = useRouter();
@@ -9,7 +9,20 @@ export default function IndexRedirect() {
   useEffect(() => {
     (async () => {
       const t = await getToken();
-      router.replace(t ? '/(tabs)/today' : '/login');
+      if (!t) {
+        router.replace('/login');
+        return;
+      }
+      // Validate the stored token. Stale tokens (e.g. signed by an old
+      // JWT_SECRET from local dev) are silently cleared so the user can
+      // log in again instead of bouncing into a 401 wall.
+      try {
+        await api('/auth/me');
+        router.replace('/(tabs)/today');
+      } catch {
+        await clearToken();
+        router.replace('/login');
+      }
     })();
   }, [router]);
 

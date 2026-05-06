@@ -60,6 +60,10 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
       ...(init.headers ?? {}),
     },
   });
+  if (res.status === 401) {
+    // Stale token — drop it so the next launch routes to /login.
+    await clearToken();
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `${res.status} ${res.statusText}`);

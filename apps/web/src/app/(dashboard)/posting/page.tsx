@@ -40,7 +40,7 @@ export default function PostingPage() {
 
   return (
     <div>
-      <header className="mb-6 flex items-center justify-between gap-4">
+      <header className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center sm:gap-4">
         <div>
           <h1>Fast Posting Studio</h1>
           <p className="mt-1 text-sm text-gray-medium">
