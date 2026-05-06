@@ -1,0 +1,48 @@
+# =============================================================================
+# Caddy reverse proxy block for RentFlow Agent API
+# =============================================================================
+# Append this to your existing Caddyfile (usually /etc/caddy/Caddyfile).
+# Caddy auto-provisions a Let's Encrypt cert — no certbot needed.
+# Reload: `sudo systemctl reload caddy` after editing.
+# =============================================================================
+
+api.rentalho.com {
+    # Capacities tuned for our small dashboard + cron API.
+    encode zstd gzip
+
+    # WhatsApp webhook is JSON; keep raw for HMAC verification.
+    request_body {
+        max_size 10MB
+    }
+
+    reverse_proxy 127.0.0.1:3001 {
+        # Pass real client IP for rate limiting / audit logs
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # NestJS health check
+        health_uri /health
+        health_interval 30s
+    }
+
+    # Hardening
+    header {
+        # Disable server fingerprinting
+        -Server
+        # HSTS — opt in once you're confident the cert works
+        # Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Click-jack protection
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    log {
+        output file /var/log/caddy/rentflow-api.log {
+            roll_size 50mb
+            roll_keep 5
+        }
+        format json
+    }
+}

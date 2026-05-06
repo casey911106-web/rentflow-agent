@@ -1,0 +1,1140 @@
+// =============================================================================
+// RentFlow Agent — Prisma schema
+// Source of truth for the data model. All entities are tenant-scoped via
+// `companyId`. UUID primary keys, UTC timestamps, soft delete where noted.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Runtime URL — points at the pooler (PgBouncer) in production for Supabase.
+  url       = env("DATABASE_URL")
+  // Direct connection — used by `prisma migrate` and `prisma db push`. The
+  // pooler can't run schema-DDL statements; the direct URL bypasses it.
+  // Optional in local dev (Prisma falls back to DATABASE_URL when DIRECT_URL
+  // is unset), required in any Supabase setup.
+  directUrl = env("DIRECT_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserStatus {
+  active
+  invited
+  suspended
+  archived
+}
+
+enum RoleName {
+  super_admin
+  ops_manager
+  field_agent
+}
+
+enum PropertyType {
+  bed_space
+  shared_room
+  partition
+  master_room
+  studio
+  one_bedroom
+  two_bedroom
+  three_bedroom
+  villa
+  other
+}
+
+enum PropertyStatus {
+  draft
+  available
+  pending_owner_confirmation
+  rented
+  blocked
+  unavailable
+  archived
+  needs_media
+  needs_price_confirmation
+  not_ready_to_post
+}
+
+enum LeadStatus {
+  new
+  contacted
+  qualifying
+  qualified
+  options_sent
+  viewing_requested
+  viewing_scheduled
+  viewing_completed
+  negotiating
+  won
+  lost
+  cold
+  opted_out
+}
+
+enum LeadTemperature {
+  hot
+  warm
+  cold
+  unqualified
+}
+
+enum AttributionConfidence {
+  high
+  medium
+  low
+  none
+}
+
+enum ViewingStatus {
+  requested
+  confirmed
+  assigned
+  rescheduled
+  cancelled
+  no_show
+  completed
+  converted
+  lost
+}
+
+enum PostPackageStatus {
+  draft
+  generated
+  scheduled
+  pending_approval
+  approved
+  published
+  failed
+  paused
+  archived
+}
+
+enum OwnerAvailabilityStatus {
+  available
+  unavailable
+  rented
+  blocked_until_date
+  pending_response
+  needs_clarification
+}
+
+enum ConversationMode {
+  ai
+  human_takeover
+  paused
+  closed
+}
+
+enum DealStatus {
+  open
+  negotiating
+  won
+  lost
+  cancelled
+}
+
+enum CommissionStatus {
+  expected
+  invoiced
+  partially_collected
+  collected
+  waived
+  lost
+}
+
+enum PaymentStatus {
+  pending
+  partially_paid
+  paid
+  failed
+  refunded
+}
+
+enum AgentAssignmentStatus {
+  pending
+  accepted
+  declined
+  completed
+}
+
+enum PropertyIssueType {
+  unavailable_when_expected
+  dirty
+  access_problem
+  price_changed
+  owner_not_responding
+  wrong_media
+  client_complaint
+  maintenance_issue
+  other
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+}
+
+enum MessageType {
+  text
+  image
+  video
+  document
+  template
+  system
+}
+
+enum ChannelPlatform {
+  facebook
+  whatsapp
+  instagram
+  telegram
+  referral
+  direct
+  other
+}
+
+enum ChannelKind {
+  group
+  page
+  channel
+  individual
+  unknown
+}
+
+enum NotificationKind {
+  info
+  warning
+  error
+  success
+  action_required
+}
+
+enum AutomationTriggerType {
+  schedule
+  event
+  manual
+}
+
+enum ScoreKind {
+  quality
+  readiness
+}
+
+// =============================================================================
+// TENANCY + IDENTITY
+// =============================================================================
+
+model Company {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  countryCode String   @default("AE")
+  timezone    String   @default("Asia/Dubai")
+  currency    String   @default("AED")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  users                    User[]
+  properties               Property[]
+  owners                   Owner[]
+  leads                    Lead[]
+  campaigns                Campaign[]
+  postPackages             PostPackage[]
+  postChannels             PostChannel[]
+  trackingLinks            TrackingLink[]
+  viewings                 Viewing[]
+  deals                    Deal[]
+  notifications            Notification[]
+  automationRules          AutomationRule[]
+  appSettings              AppSetting[]
+  integrationTokens        IntegrationToken[]
+  webhookLogs              WebhookLog[]
+  auditLogs                AuditLog[]
+  fileUploads              FileUpload[]
+  whatsAppConversations    WhatsAppConversation[]
+  whatsAppMessages         WhatsAppMessage[]
+  aiPromptTemplates        AIPromptTemplate[]
+  aiAgentSessions          AIAgentSession[]
+  ownerAvailabilityChecks  OwnerAvailabilityCheck[]
+  leadMessages             LeadMessage[]
+  leadSources              LeadSource[]
+  fieldAgents              FieldAgent[]
+  suggestions              Suggestion[]
+  trainingExamples         TrainingExample[]
+
+  @@index([slug])
+}
+
+model User {
+  id          String     @id @default(uuid())
+  companyId   String
+  company     Company    @relation(fields: [companyId], references: [id])
+  email       String
+  passwordHash String
+  fullName    String
+  phoneE164   String?
+  role        RoleName   @default(ops_manager)
+  status      UserStatus @default(active)
+  lastLoginAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+
+  fieldAgent          FieldAgent?
+  notifications       Notification[]
+  publishedPackages   PostPackage[] @relation("PublishedByUser")
+  approvedPackages    PostPackage[] @relation("ApprovedByUser")
+  auditLogs           AuditLog[]
+  fileUploads         FileUpload[]
+  decidedSuggestions  Suggestion[]   @relation("SuggestionDecidedBy")
+
+  @@unique([companyId, email])
+  @@index([companyId])
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  description String
+  createdAt   DateTime @default(now())
+}
+
+model AppSetting {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, key])
+  @@index([companyId])
+}
+
+model IntegrationToken {
+  id              String    @id @default(uuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id])
+  provider        String    // "whatsapp" | "openai" | "anthropic" | "s3" | ...
+  label           String?
+  encryptedValue  String    // KMS-wrapped
+  metadata        Json?
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, provider, label])
+  @@index([companyId])
+}
+
+model WebhookLog {
+  id          String   @id @default(uuid())
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id])
+  source      String   // "whatsapp" | "stripe" | ...
+  signatureOk Boolean
+  rawBody     Json
+  headers     Json
+  receivedAt  DateTime @default(now())
+
+  @@index([source, receivedAt])
+  @@index([companyId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  actorUserId String?
+  actor       User?    @relation(fields: [actorUserId], references: [id])
+  actorRole   RoleName?
+  entityType  String
+  entityId    String
+  action      String
+  diff        Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+}
+
+model FileUpload {
+  id              String   @id @default(uuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  uploadedById    String?
+  uploadedBy      User?    @relation(fields: [uploadedById], references: [id])
+  bucket          String
+  s3Key           String
+  mimeType        String
+  sizeBytes       Int
+  originalName    String?
+  ownerEntityType String?  // "Property" | "Viewing" | "PropertyIssue" | ...
+  ownerEntityId   String?
+  createdAt       DateTime @default(now())
+
+  propertyMedia PropertyMedia[]
+
+  @@index([companyId])
+  @@index([ownerEntityType, ownerEntityId])
+}
+
+// =============================================================================
+// OWNERS
+// =============================================================================
+
+model Owner {
+  id              String    @id @default(uuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id])
+  fullName        String
+  phoneE164       String
+  email           String?
+  notes           String?
+  trustScore      Int       @default(50)
+  responseRate    Float     @default(0)
+  lastContactedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  properties              Property[]
+  ownerMessages           OwnerMessage[]
+  availabilityChecks      OwnerAvailabilityCheck[]
+  scoreSnapshots          OwnerScoreSnapshot[]
+
+  @@unique([companyId, phoneE164])
+  @@index([companyId])
+}
+
+model OwnerMessage {
+  id        String           @id @default(uuid())
+  ownerId   String
+  owner     Owner            @relation(fields: [ownerId], references: [id])
+  direction MessageDirection
+  type      MessageType      @default(text)
+  body      String
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  @@index([ownerId, createdAt])
+}
+
+model OwnerAvailabilityCheck {
+  id          String                  @id @default(uuid())
+  companyId   String
+  company     Company                 @relation(fields: [companyId], references: [id])
+  ownerId     String
+  owner       Owner                   @relation(fields: [ownerId], references: [id])
+  propertyId  String
+  property    Property                @relation(fields: [propertyId], references: [id])
+  status      OwnerAvailabilityStatus @default(pending_response)
+  askedAt     DateTime                @default(now())
+  repliedAt   DateTime?
+  parsedReply Json?
+  rawReply    String?
+  nextCheckAt DateTime?
+
+  @@index([companyId, askedAt])
+  @@index([ownerId])
+  @@index([propertyId])
+}
+
+model OwnerScoreSnapshot {
+  id        String   @id @default(uuid())
+  ownerId   String
+  owner     Owner    @relation(fields: [ownerId], references: [id])
+  score     Int
+  factors   Json
+  createdAt DateTime @default(now())
+
+  @@index([ownerId, createdAt])
+}
+
+// =============================================================================
+// PROPERTIES
+// =============================================================================
+
+model Property {
+  id                   String          @id @default(uuid())
+  companyId            String
+  company              Company         @relation(fields: [companyId], references: [id])
+  ownerId              String?
+  owner                Owner?          @relation(fields: [ownerId], references: [id])
+  code                 String          // permanent code, e.g. RF-001
+  name                 String
+  type                 PropertyType
+  status               PropertyStatus  @default(draft)
+  area                 String?
+  addressLine          String?
+  latitude             Float?
+  longitude            Float?
+  priceAed             Decimal?        @db.Decimal(12, 2)
+  depositAed           Decimal?        @db.Decimal(12, 2)
+  commissionPolicy     String?
+  description          String?
+  occupancyMax         Int?
+  rentalMinMonths      Int?
+  amenities            Json?
+  viewingAccess        String?
+  moveInDate           DateTime?
+  rentedUntil          DateTime?
+  priceConfirmedAt     DateTime?
+  availabilityConfirmedAt DateTime?
+  qualityScore         Int             @default(50)
+  readinessScore       Int             @default(0)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  deletedAt            DateTime?
+
+  media                 PropertyMedia[]
+  availabilityBlocks    PropertyAvailabilityBlock[]
+  calendarEvents        PropertyCalendarEvent[]
+  issues                PropertyIssue[]
+  scoreSnapshots        PropertyScoreSnapshot[]
+  postPackages          PostPackage[]
+  leads                 Lead[]
+  viewings              Viewing[]
+  deals                 Deal[]
+  ownerAvailabilityChecks OwnerAvailabilityCheck[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([ownerId])
+}
+
+model PropertyMedia {
+  id           String     @id @default(uuid())
+  propertyId   String
+  property     Property   @relation(fields: [propertyId], references: [id])
+  fileUploadId String
+  file         FileUpload @relation(fields: [fileUploadId], references: [id])
+  kind         String     // "photo" | "video" | "floorplan"
+  caption      String?
+  position     Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  @@index([propertyId])
+}
+
+model PropertyAvailabilityBlock {
+  id         String   @id @default(uuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+  startsAt   DateTime
+  endsAt     DateTime
+  reason     String
+  createdAt  DateTime @default(now())
+
+  @@index([propertyId, startsAt])
+}
+
+model PropertyCalendarEvent {
+  id         String   @id @default(uuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+  kind       String   // "rented" | "blocked" | "viewing" | "maintenance"
+  startsAt   DateTime
+  endsAt     DateTime
+  refType    String?  // "Viewing" | "Deal" | etc.
+  refId      String?
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  @@index([propertyId, startsAt])
+}
+
+model PropertyIssue {
+  id          String            @id @default(uuid())
+  propertyId  String
+  property    Property          @relation(fields: [propertyId], references: [id])
+  reportedById String?
+  type        PropertyIssueType
+  description String
+  resolvedAt  DateTime?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+
+  @@index([propertyId, createdAt])
+}
+
+model PropertyScoreSnapshot {
+  id         String    @id @default(uuid())
+  propertyId String
+  property   Property  @relation(fields: [propertyId], references: [id])
+  kind       ScoreKind
+  score      Int
+  factors    Json
+  createdAt  DateTime  @default(now())
+
+  @@index([propertyId, kind, createdAt])
+}
+
+// =============================================================================
+// FIELD AGENTS
+// =============================================================================
+
+model FieldAgent {
+  id              String   @id @default(uuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  preferredAreas  Json?
+  performanceScore Int     @default(50)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  availability        AgentAvailability[]
+  performanceHistory  AgentPerformanceSnapshot[]
+  viewings            Viewing[]
+  deals               Deal[]
+
+  @@index([companyId])
+}
+
+model AgentAvailability {
+  id           String     @id @default(uuid())
+  fieldAgentId String
+  fieldAgent   FieldAgent @relation(fields: [fieldAgentId], references: [id])
+  startsAt     DateTime
+  endsAt       DateTime
+  isAvailable  Boolean    @default(true)
+  notes        String?
+  createdAt    DateTime   @default(now())
+
+  @@index([fieldAgentId, startsAt])
+}
+
+model AgentPerformanceSnapshot {
+  id           String     @id @default(uuid())
+  fieldAgentId String
+  fieldAgent   FieldAgent @relation(fields: [fieldAgentId], references: [id])
+  score        Int
+  factors      Json
+  createdAt    DateTime   @default(now())
+
+  @@index([fieldAgentId, createdAt])
+}
+
+// =============================================================================
+// LEADS + CONVERSATIONS
+// =============================================================================
+
+model Lead {
+  id                     String                @id @default(uuid())
+  companyId              String
+  company                Company               @relation(fields: [companyId], references: [id])
+  propertyId             String?
+  property               Property?             @relation(fields: [propertyId], references: [id])
+  postPackageId          String?
+  postPackage            PostPackage?          @relation(fields: [postPackageId], references: [id])
+  trackingLinkId         String?
+  trackingLink           TrackingLink?         @relation(fields: [trackingLinkId], references: [id])
+  campaignId             String?
+  campaign               Campaign?             @relation(fields: [campaignId], references: [id])
+  sourceId               String?               @unique
+  source                 LeadSource?           @relation(fields: [sourceId], references: [id])
+  whatsappConversationId String?               @unique
+  whatsappConversation   WhatsAppConversation? @relation(fields: [whatsappConversationId], references: [id])
+
+  fullName               String?
+  phoneE164              String
+  status                 LeadStatus            @default(new)
+  temperature            LeadTemperature       @default(unqualified)
+  qualificationScore     Int                   @default(0)
+  attributionConfidence  AttributionConfidence @default(none)
+
+  budgetAed              Decimal?              @db.Decimal(12, 2)
+  preferredArea          String?
+  peopleCount            Int?
+  moveInDate             DateTime?
+  rentalDurationMonths   Int?
+
+  firstSeenAt            DateTime              @default(now())
+  lastInteractionAt      DateTime?
+  lastFollowUpAt         DateTime?
+
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  deletedAt              DateTime?
+
+  messages               LeadMessage[]
+  viewings               Viewing[]
+  deal                   Deal?
+  aiSessions             AIAgentSession[]
+  suggestions            Suggestion[]
+
+  @@index([companyId, status])
+  @@index([companyId, temperature])
+  @@index([companyId, createdAt])
+  @@index([propertyId])
+  @@index([postPackageId])
+  @@index([phoneE164])
+}
+
+model LeadSource {
+  id            String           @id @default(uuid())
+  companyId     String
+  company       Company          @relation(fields: [companyId], references: [id])
+  channel       ChannelPlatform
+  channelKind   ChannelKind?
+  channelName   String?
+  campaignName  String?
+  postCode      String?
+  sourceCode    String?
+  groupOrPage   String?
+  publishedById String?
+  rawText       String?
+  capturedAt    DateTime         @default(now())
+
+  lead          Lead?
+
+  @@index([companyId, channel])
+}
+
+model LeadMessage {
+  id        String           @id @default(uuid())
+  companyId String
+  company   Company          @relation(fields: [companyId], references: [id])
+  leadId    String
+  lead      Lead             @relation(fields: [leadId], references: [id])
+  direction MessageDirection
+  channel   String           // "whatsapp" | "internal_note" | "manual_call"
+  body      String
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+model WhatsAppConversation {
+  id            String           @id @default(uuid())
+  companyId     String
+  company       Company          @relation(fields: [companyId], references: [id])
+  leadPhoneE164 String
+  ownerPhoneE164 String?         // if conversation is owner-side
+  mode          ConversationMode @default(ai)
+  lastInboundAt DateTime?
+  lastOutboundAt DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  messages    WhatsAppMessage[]
+  lead        Lead?
+  aiSessions  AIAgentSession[]
+  suggestions Suggestion[]
+
+  @@index([companyId, leadPhoneE164])
+}
+
+model WhatsAppMessage {
+  id              String                 @id @default(uuid())
+  companyId       String
+  company         Company                @relation(fields: [companyId], references: [id])
+  conversationId  String
+  conversation    WhatsAppConversation   @relation(fields: [conversationId], references: [id])
+  externalId      String?                @unique // Cloud API message ID
+  direction       MessageDirection
+  type            MessageType            @default(text)
+  body            String?
+  mediaUrl        String?
+  templateName    String?
+  templateVars    Json?
+  providerStatus  String?                // "sent" | "delivered" | "read" | "failed" | "mock_sent"
+  providerError   String?
+  metadata        Json?
+  createdAt       DateTime               @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model AIAgentSession {
+  id             String                @id @default(uuid())
+  companyId      String
+  company        Company               @relation(fields: [companyId], references: [id])
+  leadId         String?
+  lead           Lead?                 @relation(fields: [leadId], references: [id])
+  conversationId String?
+  conversation   WhatsAppConversation? @relation(fields: [conversationId], references: [id])
+  machine        String                // "lead" | "owner" | "feedback"
+  state          String
+  contextJson    Json
+  startedAt      DateTime              @default(now())
+  endedAt        DateTime?
+
+  @@index([companyId, machine, state])
+  @@index([leadId])
+  @@index([conversationId])
+}
+
+model AIPromptTemplate {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  machine   String   // "lead" | "owner" | "feedback" | "post_caption_short" | ...
+  state     String?
+  version   Int      @default(1)
+  template  String
+  variables Json?    // declared variables for documentation/validation
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, machine, state, version])
+  @@index([companyId, machine])
+}
+
+// =============================================================================
+// POSTING + ATTRIBUTION
+// =============================================================================
+
+model Campaign {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  name      String
+  goal      String?
+  startsAt  DateTime?
+  endsAt    DateTime?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  postPackages PostPackage[]
+  leads        Lead[]
+
+  @@index([companyId])
+}
+
+model PostChannel {
+  id          String          @id @default(uuid())
+  companyId   String
+  company     Company         @relation(fields: [companyId], references: [id])
+  name        String
+  platform    ChannelPlatform
+  kind        ChannelKind     @default(unknown)
+  notes       String?
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+
+  postPackages PostPackage[]
+
+  @@unique([companyId, platform, name])
+  @@index([companyId])
+}
+
+model PostPackage {
+  id                  String              @id @default(uuid())
+  companyId           String
+  company             Company             @relation(fields: [companyId], references: [id])
+  propertyId          String
+  property            Property            @relation(fields: [propertyId], references: [id])
+  campaignId          String?
+  campaign            Campaign?           @relation(fields: [campaignId], references: [id])
+  channelId           String?
+  channel             PostChannel?        @relation(fields: [channelId], references: [id])
+
+  status              PostPackageStatus   @default(draft)
+  title               String?
+  shortCaption        String?
+  longCaption         String?
+  whatsappCaption     String?
+  facebookCaption     String?
+  priceLine           String?
+  availabilityLine    String?
+  features            Json?
+
+  channelName         String?
+  publishedUrl        String?
+  publishedById       String?
+  publishedBy         User?               @relation("PublishedByUser", fields: [publishedById], references: [id])
+  publishedAt         DateTime?
+  approvedById        String?
+  approvedBy          User?               @relation("ApprovedByUser", fields: [approvedById], references: [id])
+  approvedAt          DateTime?
+  pausedAt            DateTime?
+  archivedAt          DateTime?
+
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  deletedAt           DateTime?
+
+  trackingLink        TrackingLink?
+  leads               Lead[]
+
+  @@index([companyId, status])
+  @@index([propertyId])
+}
+
+model TrackingLink {
+  id            String      @id @default(uuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id])
+  postPackageId String      @unique
+  postPackage   PostPackage @relation(fields: [postPackageId], references: [id])
+  sourceCode    String      @unique
+  postCode      String      @unique
+  shortUrl      String
+  whatsappUrl   String
+  clicks        Int         @default(0)
+  lastClickAt   DateTime?
+  createdAt     DateTime    @default(now())
+
+  leads         Lead[]
+
+  @@index([companyId])
+}
+
+// =============================================================================
+// VIEWINGS, DEALS, MONEY
+// =============================================================================
+
+model Viewing {
+  id              String                @id @default(uuid())
+  companyId       String
+  company         Company               @relation(fields: [companyId], references: [id])
+  leadId          String
+  lead            Lead                  @relation(fields: [leadId], references: [id])
+  propertyId      String
+  property        Property              @relation(fields: [propertyId], references: [id])
+  fieldAgentId    String?
+  fieldAgent      FieldAgent?           @relation(fields: [fieldAgentId], references: [id])
+
+  status          ViewingStatus         @default(requested)
+  assignmentStatus AgentAssignmentStatus @default(pending)
+  scheduledAt     DateTime
+  durationMinutes Int                   @default(30)
+  arrivedAt       DateTime?
+  completedAt     DateTime?
+  outcomeNotes    String?
+  cancelReason    String?
+
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  feedback        ViewingFeedback?
+
+  @@index([companyId, scheduledAt])
+  @@index([companyId, status])
+  @@index([fieldAgentId, scheduledAt])
+  @@index([leadId])
+}
+
+model ViewingFeedback {
+  id           String   @id @default(uuid())
+  viewingId    String   @unique
+  viewing      Viewing  @relation(fields: [viewingId], references: [id])
+  rating       Int?     // 1-5
+  comments     String?
+  bookingIntent String? // "yes" | "maybe" | "no"
+  raisedIssues Json?
+  createdAt    DateTime @default(now())
+}
+
+model Deal {
+  id                   String           @id @default(uuid())
+  companyId            String
+  company              Company          @relation(fields: [companyId], references: [id])
+  leadId               String           @unique
+  lead                 Lead             @relation(fields: [leadId], references: [id])
+  propertyId           String
+  property             Property         @relation(fields: [propertyId], references: [id])
+  fieldAgentId         String?
+  fieldAgent           FieldAgent?      @relation(fields: [fieldAgentId], references: [id])
+
+  status               DealStatus       @default(open)
+  rentAmount           Decimal?         @db.Decimal(12, 2)
+  depositAmount        Decimal?         @db.Decimal(12, 2)
+  commissionAmount     Decimal?         @db.Decimal(12, 2)
+  commissionPaidBy     String?          // "tenant" | "owner" | "split"
+  moveInDate           DateTime?
+  rentalDurationMonths Int?
+  closedAt             DateTime?
+  lostReason           String?
+  internalNotes        String?
+
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  deletedAt            DateTime?
+
+  commission           Commission?
+
+  @@index([companyId, status])
+  @@index([propertyId])
+}
+
+model Commission {
+  id              String           @id @default(uuid())
+  dealId          String           @unique
+  deal            Deal             @relation(fields: [dealId], references: [id])
+  status          CommissionStatus @default(expected)
+  expectedAmount  Decimal          @db.Decimal(12, 2)
+  invoicedAmount  Decimal?         @db.Decimal(12, 2)
+  collectedAmount Decimal          @default(0) @db.Decimal(12, 2)
+  invoicedAt      DateTime?
+  collectedAt     DateTime?
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  payments        PaymentRecord[]
+}
+
+model PaymentRecord {
+  id           String        @id @default(uuid())
+  commissionId String
+  commission   Commission    @relation(fields: [commissionId], references: [id])
+  amount       Decimal       @db.Decimal(12, 2)
+  status       PaymentStatus @default(pending)
+  method       String?       // "bank_transfer" | "cash" | "cheque" | ...
+  reference    String?
+  paidAt       DateTime?
+  createdAt    DateTime      @default(now())
+}
+
+// =============================================================================
+// AUTOMATION + NOTIFICATIONS
+// =============================================================================
+
+model AutomationRule {
+  id          String                @id @default(uuid())
+  companyId   String
+  company     Company               @relation(fields: [companyId], references: [id])
+  name        String
+  triggerType AutomationTriggerType
+  triggerKey  String                // event name or cron expression
+  conditions  Json?
+  actions     Json
+  active      Boolean               @default(true)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  jobs        AutomationJob[]
+
+  @@index([companyId, active])
+}
+
+model AutomationJob {
+  id        String         @id @default(uuid())
+  ruleId    String
+  rule      AutomationRule @relation(fields: [ruleId], references: [id])
+  status    String         // "queued" | "running" | "succeeded" | "failed"
+  payload   Json?
+  result    Json?
+  error     String?
+  runAt     DateTime
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([ruleId, status])
+  @@index([runAt])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  companyId String
+  company   Company          @relation(fields: [companyId], references: [id])
+  userId    String?
+  user      User?            @relation(fields: [userId], references: [id])
+  kind      NotificationKind @default(info)
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([companyId, userId, readAt])
+}
+
+// =============================================================================
+// AI SUGGESTIONS + TRAINING EXAMPLES (human-in-the-loop)
+// =============================================================================
+
+enum SuggestionStatus {
+  pending
+  approved
+  edited
+  cancelled
+  failed
+}
+
+model Suggestion {
+  id                String               @id @default(uuid())
+  companyId         String
+  company           Company              @relation(fields: [companyId], references: [id])
+  leadId            String
+  lead              Lead                 @relation(fields: [leadId], references: [id])
+  conversationId    String
+  conversation      WhatsAppConversation @relation(fields: [conversationId], references: [id])
+  inboundMessageId  String?
+
+  state             String               // workflow state when generated
+  systemPrompt      String?              // hash or excerpt for traceability
+  suggestedReply    String               // what the AI proposed
+  reasoning         String?              // model's internal rationale
+  confidence        Float?               // 0-1
+  stateAfter        String?              // suggested next state
+  escalate          Boolean              @default(false)
+
+  status            SuggestionStatus     @default(pending)
+
+  finalReply        String?              // what was actually sent (may equal suggestion or be edited)
+  decidedById       String?
+  decidedBy         User?                @relation("SuggestionDecidedBy", fields: [decidedById], references: [id])
+  decidedAt         DateTime?
+  outboundMessageId String?
+
+  modelId           String
+  inputTokens       Int?
+  outputTokens      Int?
+  cacheReadTokens   Int?
+  cacheCreationTokens Int?
+  latencyMs         Int?
+  errorMessage      String?
+
+  trainingExample   TrainingExample?     @relation("SuggestionTrainingExample")
+
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([companyId, status])
+  @@index([leadId])
+  @@index([conversationId])
+}
+
+model TrainingExample {
+  id              String     @id @default(uuid())
+  companyId       String
+  company         Company    @relation(fields: [companyId], references: [id])
+
+  suggestionId    String     @unique
+  suggestion      Suggestion @relation("SuggestionTrainingExample", fields: [suggestionId], references: [id])
+
+  state           String
+  contextSnapshot Json
+  aiSuggestion    String     // verbatim model output
+  operatorEdit    String     // operator's corrected version
+
+  enabled         Boolean    @default(true)   // include in few-shot
+  pinned          Boolean    @default(false)  // always include
+  notes           String?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([companyId, enabled])
+  @@index([companyId, state, enabled])
+}

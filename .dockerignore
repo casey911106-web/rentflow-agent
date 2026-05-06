@@ -1,0 +1,16 @@
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/build
+**/.expo
+**/coverage
+**/.env
+**/.env.local
+**/.env.*.local
+**/uploads
+.git
+.github
+docs
+README.md
+*.md

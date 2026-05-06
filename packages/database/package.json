@@ -1,0 +1,28 @@
+{
+  "name": "@rentflow/database",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "pnpm exec tsc",
+    "generate": "pnpm exec prisma generate",
+    "migrate": "pnpm exec prisma migrate dev",
+    "migrate:deploy": "pnpm exec prisma migrate deploy",
+    "seed": "pnpm exec tsx prisma/seed.ts",
+    "reset": "pnpm exec prisma migrate reset --force && pnpm seed",
+    "studio": "pnpm exec prisma studio",
+    "typecheck": "pnpm exec tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.18.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.18.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

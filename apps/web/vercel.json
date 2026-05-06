@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd ../.. && pnpm install --ignore-scripts --frozen-lockfile && pnpm -r --filter='./packages/*' run build && pnpm --filter @rentflow/web build",
+  "installCommand": "echo 'install handled by buildCommand'",
+  "framework": "nextjs",
+  "outputDirectory": ".next"
+}

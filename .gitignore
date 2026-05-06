@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+.turbo/
+out/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Testing
+coverage/
+.nyc_output/
+
+# Prisma
+prisma/migrations/dev/
+
+# Expo
+.expo/
+.expo-shared/
+web-build/
+ios/
+android/
+
+# Native
+*.ipa
+*.apk
+*.aab
+
+# Misc
+*.tgz
+.cache/
+tmp/
+temp/

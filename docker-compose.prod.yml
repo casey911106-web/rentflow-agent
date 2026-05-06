@@ -1,0 +1,61 @@
+# =============================================================================
+# RentFlow Agent — Production stack for self-hosted VPS
+# =============================================================================
+# Postgres lives on Supabase (managed). This compose file runs the API only,
+# joined to the existing nginx-proxy network so the host's nginx-proxy
+# container auto-routes https://rentflow-api.rentalho.com → :3001 here.
+#
+# Required external resources (created once, manually):
+#   - Network: nginx-proxy (or whatever the VPS uses — confirm with
+#     `docker network ls` and adjust the `name:` field below)
+#   - DNS A-record: rentflow-api.rentalho.com → <VPS IP>
+#   - Letsencrypt cert is auto-provisioned by nginx-proxy-companion based on
+#     the LETSENCRYPT_HOST env var below.
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: rentflow-api:latest
+    container_name: rentflow-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      # nginx-proxy (jwilder) auto-discovery
+      VIRTUAL_HOST: rentflow-api.rentalho.com
+      VIRTUAL_PORT: "3001"
+      # Letsencrypt companion auto-issues + renews the cert
+      LETSENCRYPT_HOST: rentflow-api.rentalho.com
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-ops@rentalho.com}
+    expose:
+      - "3001"
+    volumes:
+      - rentflow_uploads:/repo/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - nginx-proxy
+
+volumes:
+  rentflow_uploads:
+    name: rentflow_uploads
+
+networks:
+  # External network shared with the host's nginx-proxy + docker-gen +
+  # letsencrypt-nginx-proxy-companion stack. Verified on the VPS (May 2026).
+  nginx-proxy:
+    external: true
+    name: rentalho2

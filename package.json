@@ -1,0 +1,33 @@
+{
+  "name": "rentflow-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RentFlow Agent - Rental conversion operating system. Turn social rental inquiries into qualified viewings and closed deals.",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "pnpm exec turbo run build",
+    "dev": "pnpm exec turbo run dev",
+    "lint": "pnpm exec turbo run lint",
+    "test": "pnpm exec turbo run test",
+    "typecheck": "pnpm exec turbo run typecheck",
+    "clean": "pnpm exec turbo run clean && rm -rf node_modules",
+    "db:generate": "pnpm --filter @rentflow/database run generate",
+    "db:migrate": "pnpm --filter @rentflow/database run migrate",
+    "db:seed": "pnpm --filter @rentflow/database run seed",
+    "db:reset": "pnpm --filter @rentflow/database run reset",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "prettier": "^3.3.0",
+    "tsx": "^4.16.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0"
+  }
+}

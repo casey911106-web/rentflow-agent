@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "RentFlow Agent",
+    "slug": "rentflow-agent",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "rentflow",
+    "ios": { "supportsTablet": false },
+    "android": { "package": "com.rentflow.agent" },
+    "web": { "bundler": "metro" },
+    "plugins": ["expo-router"]
+  }
+}
