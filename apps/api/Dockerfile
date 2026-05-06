@@ -79,4 +79,14 @@ EXPOSE 3001
 # Migrate on every boot, then start. Idempotent — Prisma skips already-applied
 # migrations. The schema is the source of truth; failures abort the container
 # so we never serve traffic against a drifted DB.
-CMD ["sh", "-c", "pnpm --filter @rentflow/database exec prisma migrate deploy && pnpm --filter @rentflow/api run start"]
+# Migrations are a separate operational step — run from a workstation that
+# can reach Supabase's direct connection (IPv6 only since 2024). The pooler
+# (DATABASE_URL) doesn't support schema DDL.
+#
+# Manual migrate workflow:
+#   • From Mac with DIRECT_URL set:
+#     pnpm --filter @rentflow/database exec prisma migrate deploy
+#   • Or via this container, ad-hoc when the host has IPv6:
+#     docker compose -f docker-compose.prod.yml run --rm api \
+#       pnpm --filter @rentflow/database exec prisma migrate deploy
+CMD ["pnpm", "--filter", "@rentflow/api", "run", "start"]
