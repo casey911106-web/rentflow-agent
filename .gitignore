@@ -53,3 +53,6 @@ android/
 .cache/
 tmp/
 temp/
+
+# Local backup dumps from scripts/backup-supabase.sh
+backups/
