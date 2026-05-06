@@ -1070,6 +1070,7 @@ enum SuggestionStatus {
   edited
   cancelled
   failed
+  expired
 }
 
 model Suggestion {
