@@ -180,7 +180,7 @@ export class OperatorInboundHandler {
     if (user) return user.id;
     // Fallback: any super_admin in the tenant.
     const admin = await this.prisma.user.findFirst({
-      where: { companyId, role: 'super_admin', deletedAt: null },
+      where: { companyId, roles: { has: 'super_admin' }, deletedAt: null },
     });
     if (admin) return admin.id;
     throw new Error('No operator user found to attribute the action to.');

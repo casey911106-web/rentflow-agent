@@ -41,13 +41,13 @@ export class AuthService {
     const accessToken = this.jwt.sign({
       sub: user.id,
       companyId: user.companyId,
-      role: user.role,
+      roles: user.roles,
       email: user.email,
     });
 
     return {
       accessToken,
-      user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role },
+      user: { id: user.id, email: user.email, fullName: user.fullName, roles: user.roles },
     };
   }
 
@@ -58,7 +58,7 @@ export class AuthService {
         id: true,
         email: true,
         fullName: true,
-        role: true,
+        roles: true,
         companyId: true,
         company: { select: { id: true, name: true, slug: true } },
       },

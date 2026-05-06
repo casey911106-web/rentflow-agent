@@ -99,7 +99,7 @@ async function main() {
       email: 'admin@rentflow.demo',
       passwordHash: STUB_HASH,
       fullName: 'Casey Admin',
-      role: RoleName.super_admin,
+      roles: [RoleName.super_admin],
       phoneE164: '+971501110001',
     },
   });
@@ -112,7 +112,7 @@ async function main() {
       email: 'ops@rentflow.demo',
       passwordHash: STUB_HASH,
       fullName: 'Olivia Ops',
-      role: RoleName.ops_manager,
+      roles: [RoleName.ops_manager],
       phoneE164: '+971501110002',
     },
   });
@@ -133,7 +133,7 @@ async function main() {
         email: spec.email,
         passwordHash: STUB_HASH,
         fullName: spec.name,
-        role: RoleName.field_agent,
+        roles: [RoleName.field_agent],
         phoneE164: spec.phone,
       },
     });

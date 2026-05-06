@@ -281,7 +281,7 @@ model User {
   passwordHash String
   fullName    String
   phoneE164   String?
-  role        RoleName   @default(ops_manager)
+  roles       RoleName[] @default([ops_manager])
   status      UserStatus @default(active)
   lastLoginAt DateTime?
   createdAt   DateTime   @default(now())

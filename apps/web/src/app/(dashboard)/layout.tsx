@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Sparkles,
   HelpCircle,
+  UserCog,
 } from 'lucide-react';
 import { PendingSuggestionsBadge } from '@/components/PendingSuggestionsBadge';
 
@@ -29,6 +30,7 @@ const NAV: Array<{ href: string; label: string; icon: React.ReactNode; badge?: R
   { href: '/deals',             label: 'Deals',            icon: <Wallet size={18} /> },
   { href: '/analytics',         label: 'Analytics',        icon: <BarChart3 size={18} /> },
   { href: '/how-it-works',      label: 'How it works',     icon: <HelpCircle size={18} /> },
+  { href: '/admin/users',       label: 'Users',            icon: <UserCog size={18} /> },
   { href: '/settings',          label: 'Settings',         icon: <Settings size={18} /> },
 ];
 
