@@ -28,6 +28,11 @@ interface ViewingDetail {
     addressLine: string | null;
   };
   lead: { fullName: string | null; phoneE164: string };
+  feedback: {
+    rating: number | null;
+    bookingIntent: string | null;
+    comments: string | null;
+  } | null;
 }
 
 interface PropertyMedia {
@@ -241,6 +246,9 @@ export default function ViewingDetailScreen() {
           {viewing.durationMinutes} min · status: {viewing.status}
         </Text>
       </View>
+
+      {/* Lead feedback */}
+      <FeedbackCard viewing={viewing} onSaved={load} />
 
       {/* Outcome notes */}
       {viewing.outcomeNotes ? (
@@ -466,3 +474,158 @@ const sectionLabel = {
   marginTop: 12,
   marginBottom: 8,
 } as const;
+
+function FeedbackCard({
+  viewing,
+  onSaved,
+}: {
+  viewing: { id: string; feedback: { rating: number | null; bookingIntent: string | null; comments: string | null } | null };
+  onSaved: () => void | Promise<void>;
+}) {
+  const existing = viewing.feedback;
+  const [editing, setEditing] = useState(!existing);
+  const [rating, setRating] = useState<number>(existing?.rating ?? 0);
+  const [intent, setIntent] = useState<string>(existing?.bookingIntent ?? '');
+  const [comments, setComments] = useState<string>(existing?.comments ?? '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    try {
+      await api(`/viewings/${viewing.id}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify({
+          rating: rating > 0 ? rating : undefined,
+          bookingIntent: intent || undefined,
+          comments: comments.trim() || undefined,
+        }),
+      });
+      await onSaved();
+      setEditing(false);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing && existing) {
+    return (
+      <View style={card}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={cardLabel}>Lead feedback</Text>
+          <Pressable onPress={() => setEditing(true)}>
+            <Text style={{ color: '#00A7A5', fontSize: 13, fontWeight: '600' }}>Edit</Text>
+          </Pressable>
+        </View>
+        {existing.rating ? (
+          <View style={{ flexDirection: 'row', marginTop: 6 }}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <Ionicons
+                key={n}
+                name={n <= (existing.rating ?? 0) ? 'star' : 'star-outline'}
+                color="#F59E0B"
+                size={20}
+              />
+            ))}
+          </View>
+        ) : null}
+        {existing.bookingIntent ? (
+          <Text style={{ color: '#334155', marginTop: 6, fontWeight: '600' }}>
+            Booking intent: {existing.bookingIntent}
+          </Text>
+        ) : null}
+        {existing.comments ? (
+          <Text style={{ color: '#334155', marginTop: 6 }}>{existing.comments}</Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={card}>
+      <Text style={cardLabel}>Lead feedback</Text>
+
+      <Text style={{ color: '#475569', fontSize: 12, marginTop: 8, marginBottom: 4 }}>Rating</Text>
+      <View style={{ flexDirection: 'row' }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Pressable key={n} onPress={() => setRating(n === rating ? 0 : n)} style={{ marginRight: 4 }}>
+            <Ionicons name={n <= rating ? 'star' : 'star-outline'} color="#F59E0B" size={28} />
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={{ color: '#475569', fontSize: 12, marginTop: 12, marginBottom: 4 }}>Booking intent</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {[
+          { key: 'yes', label: 'Yes', color: '#16A34A' },
+          { key: 'maybe', label: 'Maybe', color: '#F59E0B' },
+          { key: 'no', label: 'No', color: '#DC2626' },
+        ].map((opt) => {
+          const active = intent === opt.key;
+          return (
+            <Pressable
+              key={opt.key}
+              onPress={() => setIntent(active ? '' : opt.key)}
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius: 999,
+                backgroundColor: active ? opt.color : '#F1F5F9',
+              }}
+            >
+              <Text style={{ color: active ? 'white' : '#475569', fontWeight: '600' }}>{opt.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={{ color: '#475569', fontSize: 12, marginTop: 12, marginBottom: 4 }}>Comments (optional)</Text>
+      <TextInput
+        value={comments}
+        onChangeText={setComments}
+        multiline
+        numberOfLines={3}
+        placeholder="What did the lead say?"
+        style={{
+          backgroundColor: '#F8FAFC',
+          padding: 10,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: '#E2E8F0',
+          textAlignVertical: 'top',
+          minHeight: 60,
+          color: '#0F172A',
+        }}
+      />
+
+      {err ? <Text style={{ color: '#DC2626', marginTop: 8 }}>{err}</Text> : null}
+
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+        {existing ? (
+          <Pressable
+            onPress={() => setEditing(false)}
+            style={{ flex: 1, padding: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#F1F5F9' }}
+          >
+            <Text style={{ color: '#475569', fontWeight: '600' }}>Cancel</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={save}
+          disabled={saving || (!rating && !intent && !comments.trim())}
+          style={{
+            flex: 1,
+            padding: 12,
+            borderRadius: 8,
+            alignItems: 'center',
+            backgroundColor: saving || (!rating && !intent && !comments.trim()) ? '#94A3B8' : '#00A7A5',
+          }}
+        >
+          <Text style={{ color: 'white', fontWeight: '700' }}>{saving ? 'Saving…' : 'Save feedback'}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}

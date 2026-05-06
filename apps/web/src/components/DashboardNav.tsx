@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Home,
   Building2,
@@ -18,10 +19,12 @@ import {
   Sparkles,
   HelpCircle,
   UserCog,
+  LogOut,
   Menu,
   X,
 } from 'lucide-react';
 import { PendingSuggestionsBadge } from '@/components/PendingSuggestionsBadge';
+import { clearToken } from '@/lib/api';
 
 const NAV: Array<{ href: string; label: string; icon: React.ReactNode; badge?: React.ReactNode }> = [
   { href: '/dashboard',    label: 'Overview',     icon: <Home size={18} /> },
@@ -81,7 +84,16 @@ function NavLink({
 
 export function DashboardNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+
+  function handleLogout() {
+    clearToken();
+    queryClient.clear();
+    setOpen(false);
+    router.replace('/login');
+  }
 
   // Close drawer on route change
   useEffect(() => {
@@ -168,8 +180,16 @@ export function DashboardNav() {
             />
           ))}
         </nav>
-        <div className="border-t border-white/10 px-5 py-4 text-xs text-slate-400 md:px-6">
-          <p>WhatsApp: +971 58 506 3316</p>
+        <div className="border-t border-white/10 px-3 py-3 md:px-4">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm text-slate-200 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <LogOut size={18} />
+            <span className="flex-1 text-left">Sign out</span>
+          </button>
+          <p className="mt-3 px-3 text-xs text-slate-400">WhatsApp: +971 58 506 3316</p>
         </div>
       </aside>
     </>
