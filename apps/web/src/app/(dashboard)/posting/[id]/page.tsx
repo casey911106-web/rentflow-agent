@@ -4,7 +4,27 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ScoreBadge, StatusPill } from '@rentflow/ui';
+import { AuthedImage } from '@/components/AuthedImage';
 import { api } from '@/lib/api';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+async function downloadFile(fileId: string, filename: string) {
+  const token = window.localStorage.getItem('rentflow_token');
+  const res = await fetch(`${API_BASE}/files/${fileId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 interface PostPackageDetail {
   id: string;
@@ -34,6 +54,12 @@ interface PostPackageDetail {
     readinessScore: number;
     qualityScore: number;
     description: string | null;
+    media: Array<{
+      id: string;
+      kind: string;
+      caption: string | null;
+      file: { id: string; mimeType: string; originalName: string | null };
+    }>;
   };
   channel: { id: string; name: string; platform: string; kind: string } | null;
   trackingLink: {
@@ -232,6 +258,70 @@ export default function PostPackageDetailPage({ params }: { params: { id: string
             >
               Open property →
             </Link>
+          </div>
+
+          {/* MEDIA — photos & videos for agents to download/post */}
+          <div className="mt-4 rounded-md bg-white p-4 shadow-card">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-medium">
+                Media ({pkg.property.media.length})
+              </p>
+              {pkg.property.media.length > 0 ? (
+                <button
+                  onClick={() => {
+                    pkg.property.media.forEach((m, i) => {
+                      const ext = m.file.mimeType.split('/')[1] || 'bin';
+                      const filename = m.file.originalName || `${pkg.property.code}-${i + 1}.${ext}`;
+                      setTimeout(() => downloadFile(m.file.id, filename), i * 200);
+                    });
+                  }}
+                  className="text-xs font-semibold text-teal hover:underline"
+                >
+                  Download all
+                </button>
+              ) : null}
+            </div>
+            {pkg.property.media.length === 0 ? (
+              <p className="text-xs text-gray-medium">
+                No media uploaded yet.{' '}
+                <Link
+                  href={`/properties/${pkg.property.id}`}
+                  className="font-semibold text-teal hover:underline"
+                >
+                  Upload from property page
+                </Link>
+                .
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {pkg.property.media.map((m, i) => {
+                  const isVideo = m.file.mimeType.startsWith('video/');
+                  const ext = m.file.mimeType.split('/')[1] || 'bin';
+                  const filename = m.file.originalName || `${pkg.property.code}-${i + 1}.${ext}`;
+                  return (
+                    <div key={m.id} className="group relative">
+                      {isVideo ? (
+                        <div className="flex aspect-square items-center justify-center rounded-md bg-navy-deep text-white">
+                          <span className="text-xs">▶ video</span>
+                        </div>
+                      ) : (
+                        <AuthedImage
+                          fileId={m.file.id}
+                          alt={m.caption ?? ''}
+                          className="aspect-square w-full rounded-md object-cover"
+                        />
+                      )}
+                      <button
+                        onClick={() => downloadFile(m.file.id, filename)}
+                        className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      >
+                        ↓ Download
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </aside>
 

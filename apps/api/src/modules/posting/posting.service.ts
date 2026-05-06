@@ -12,7 +12,20 @@ export class PostingService {
     return this.prisma.postPackage.findMany({
       where: { companyId, deletedAt: null },
       include: {
-        property: { select: { id: true, code: true, name: true, area: true, status: true } },
+        property: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            area: true,
+            status: true,
+            media: {
+              orderBy: { position: 'asc' },
+              take: 1,
+              select: { id: true, kind: true, file: { select: { id: true, mimeType: true } } },
+            },
+          },
+        },
         channel: true,
         trackingLink: true,
         _count: { select: { leads: true } },
@@ -26,7 +39,16 @@ export class PostingService {
     const pkg = await this.prisma.postPackage.findFirst({
       where: { id, companyId, deletedAt: null },
       include: {
-        property: true,
+        property: {
+          include: {
+            media: {
+              orderBy: { position: 'asc' },
+              include: {
+                file: { select: { id: true, mimeType: true, originalName: true } },
+              },
+            },
+          },
+        },
         channel: true,
         trackingLink: true,
         publishedBy: { select: { fullName: true } },
