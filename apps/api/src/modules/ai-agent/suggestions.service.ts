@@ -165,7 +165,7 @@ export class SuggestionsService {
   }
 
   private async sendToLead(
-    suggestion: { conversation: { id: string; leadPhoneE164: string; mode: string } | null; companyId: string; conversationId: string },
+    suggestion: { conversation: { id: string; leadPhoneE164: string; mode: string } | null; companyId: string; conversationId: string; lead: { fullName: string | null; preferredArea: string | null } },
     text: string,
   ): Promise<{ messageId: string }> {
     const conv = suggestion.conversation;
@@ -173,18 +173,36 @@ export class SuggestionsService {
     if (conv.mode === 'closed') {
       throw new BadRequestException('Conversation is closed (lead opted out).');
     }
-    const result = await this.waAdapter.adapter.sendText({
+    let result = await this.waAdapter.adapter.sendText({
       to: conv.leadPhoneE164,
       body: text,
       conversationId: conv.id,
     });
+
+    // If text fails because the 24h customer-service window expired, retry
+    // with the lead_followup_24h UTILITY template. Custom AI text is lost in
+    // this fallback — the template is fixed copy with name + area variables.
+    let usedTemplate = false;
+    if (result.status === 'failed' && /131047|outside.*window|re.?engagement/i.test(result.error ?? '')) {
+      this.logger.warn(`24h window expired for ${conv.leadPhoneE164}; falling back to lead_followup_24h template`);
+      const firstName = suggestion.lead.fullName?.split(/\s+/)[0] || 'amigo/a';
+      const area = suggestion.lead.preferredArea || 'Dubai';
+      result = await this.waAdapter.adapter.sendTemplate({
+        to: conv.leadPhoneE164,
+        template: { name: 'lead_followup_24h', languageCode: 'es' },
+        variables: { '1': firstName, '2': area },
+        conversationId: conv.id,
+      });
+      usedTemplate = true;
+    }
+
     const message = await this.prisma.whatsAppMessage.create({
       data: {
         companyId: suggestion.companyId,
         conversationId: conv.id,
         externalId: result.externalId || null,
         direction: 'outbound',
-        type: 'text',
+        type: usedTemplate ? 'template' : 'text',
         body: text,
         providerStatus: result.status,
         providerError: result.error,
