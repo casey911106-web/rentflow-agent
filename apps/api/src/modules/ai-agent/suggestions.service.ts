@@ -185,11 +185,11 @@ export class SuggestionsService {
     let usedTemplate = false;
     if (result.status === 'failed' && /131047|outside.*window|re.?engagement/i.test(result.error ?? '')) {
       this.logger.warn(`24h window expired for ${conv.leadPhoneE164}; falling back to lead_followup_24h template`);
-      const firstName = suggestion.lead.fullName?.split(/\s+/)[0] || 'amigo/a';
+      const firstName = suggestion.lead.fullName?.split(/\s+/)[0] || 'there';
       const area = suggestion.lead.preferredArea || 'Dubai';
       result = await this.waAdapter.adapter.sendTemplate({
         to: conv.leadPhoneE164,
-        template: { name: 'lead_followup_24h', languageCode: 'es' },
+        template: { name: 'lead_followup_24h', languageCode: 'en' },
         variables: { '1': firstName, '2': area },
         conversationId: conv.id,
       });

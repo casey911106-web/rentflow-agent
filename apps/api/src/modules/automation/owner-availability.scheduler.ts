@@ -107,14 +107,14 @@ export class OwnerAvailabilityScheduler {
     if (!property.owner) return false;
 
     const firstName = property.owner.fullName.split(/\s+/)[0] ?? property.owner.fullName;
-    const body = `Hola ${firstName}, soy de RentFlow. Verificación rápida — ¿${property.code} sigue disponible? Responde: Sí / Rentado / Disponible desde <fecha> / Cambio de precio.`;
+    const body = `Hi ${firstName}, this is RentFlow Agent. Quick check — is ${property.code} still available for rent? Reply: Yes / Rented / Available from <date> / Price changed.`;
 
     // Owner pings use a UTILITY template so they work regardless of the 24h
     // customer-service window. If the template isn't approved yet, the send
     // fails and the OwnerAvailabilityCheck row records the error.
     const result = await this.waAdapter.adapter.sendTemplate({
       to: property.owner.phoneE164,
-      template: { name: 'owner_availability_check', languageCode: 'es' },
+      template: { name: 'owner_availability_check', languageCode: 'en' },
       variables: { '1': firstName, '2': property.code },
       conversationId: `owner:${property.owner.id}`,
     });
