@@ -103,8 +103,8 @@ export default function NewPostPackagePage() {
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-md border border-gray-light bg-white shadow-card">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-md border border-gray-light bg-white shadow-card">
+          <table className="w-full min-w-[680px] text-left text-sm">
             <thead className="bg-offwhite text-xs uppercase tracking-wide text-gray-medium">
               <tr>
                 <th className="px-4 py-3">Code</th>

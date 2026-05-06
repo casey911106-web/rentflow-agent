@@ -25,7 +25,7 @@ export default function SettingsPage() {
         <section className="rounded-md border border-gray-light bg-white p-6 shadow-card">
           <h3 className="mb-4">Account</h3>
           {data ? (
-            <dl className="grid grid-cols-2 gap-4 text-sm">
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
               <div><dt className="text-xs text-gray-medium">Name</dt><dd className="font-semibold">{data.fullName}</dd></div>
               <div><dt className="text-xs text-gray-medium">Email</dt><dd className="font-mono text-xs">{data.email}</dd></div>
               <div><dt className="text-xs text-gray-medium">Role</dt><dd className="font-semibold">{data.role.replace(/_/g, ' ')}</dd></div>

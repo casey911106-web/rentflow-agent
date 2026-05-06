@@ -27,7 +27,7 @@ export default function PropertiesPage() {
 
   return (
     <div>
-      <header className="mb-6 flex items-center justify-between gap-4">
+      <header className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center sm:gap-4">
         <div>
           <h1>Properties</h1>
           <p className="mt-1 text-sm text-gray-medium">Inventory + readiness gate for posting.</p>
@@ -40,8 +40,8 @@ export default function PropertiesPage() {
         </Link>
       </header>
 
-      <div className="overflow-hidden rounded-md border border-gray-light bg-white shadow-card">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto rounded-md border border-gray-light bg-white shadow-card">
+        <table className="w-full min-w-[680px] text-left text-sm">
           <thead className="bg-offwhite text-xs uppercase tracking-wide text-gray-medium">
             <tr>
               <th className="px-4 py-3">Code</th>

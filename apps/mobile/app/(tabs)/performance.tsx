@@ -6,7 +6,7 @@ interface Me {
   id: string;
   fullName: string;
   email: string;
-  role: string;
+  roles: string[];
 }
 
 export default function PerformanceScreen() {

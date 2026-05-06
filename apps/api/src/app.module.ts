@@ -20,6 +20,7 @@ import { ScoresModule } from './modules/scores/scores.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { FilesModule } from './modules/files/files.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SystemDocsModule } from './modules/system-docs/system-docs.module';
 import { HealthModule } from './modules/health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -50,6 +51,7 @@ import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
     ScoresModule,
     AnalyticsModule,
     AutomationModule,
+    NotificationsModule,
     SystemDocsModule,
   ],
   providers: [

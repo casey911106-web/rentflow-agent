@@ -186,7 +186,7 @@ export default function DealDetailPage({ params }: { params: { id: string } }) {
         <section className="space-y-4 xl:col-span-5">
           <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
             <h3 className="mb-3 text-sm uppercase tracking-wide text-gray-medium">Terms</h3>
-            <dl className="grid grid-cols-2 gap-4 text-sm">
+            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
               <DealStat label="Rent" value={deal.rentAmount} />
               <DealStat label="Deposit" value={deal.depositAmount} />
               <DealStat label="Commission" value={deal.commissionAmount} />
@@ -265,7 +265,7 @@ export default function DealDetailPage({ params }: { params: { id: string } }) {
 
             {c ? (
               <>
-                <div className="mb-4 grid grid-cols-3 gap-4">
+                <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <div>
                     <p className="text-xs text-gray-medium">Expected</p>
                     <p className="text-2xl font-bold text-navy-deep">
@@ -393,7 +393,7 @@ function UpdateCommissionForm({
       <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-medium">
         Update commission
       </h4>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs font-semibold text-gray-dark">Status</label>
           <select
