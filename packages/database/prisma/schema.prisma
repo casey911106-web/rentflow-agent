@@ -188,6 +188,7 @@ enum MessageType {
   document
   template
   system
+  interactive
 }
 
 enum ChannelPlatform {

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import type { LeadStatus } from '@rentflow/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OperatorNotifierService } from '../ai-agent/operator-notifier.service';
 import { SuggestionEngineService, type LeadState } from '../ai-agent/suggestion-engine.service';
@@ -10,11 +11,11 @@ const FOLLOWUP_TIERS: Array<{ minHours: number; maxHours: number; label: string 
   { minHours: 72, maxHours: 168, label: '3d'  },
 ];
 
-const TERMINAL_STATUSES = new Set(['won', 'lost', 'opted_out']);
+const TERMINAL_STATUSES = new Set<LeadStatus>(['won', 'lost', 'opted_out']);
 
 const FOLLOWUP_COOLDOWN_HOURS = 12;
 
-const ELIGIBLE_LEAD_STATUSES = new Set([
+const ELIGIBLE_LEAD_STATUSES: LeadStatus[] = [
   'new',
   'contacted',
   'qualifying',
@@ -22,7 +23,7 @@ const ELIGIBLE_LEAD_STATUSES = new Set([
   'options_sent',
   'viewing_requested',
   'cold',
-]);
+];
 
 /**
  * Sweeps for silent leads and generates proactive follow-up Suggestions.
@@ -80,7 +81,7 @@ export class LeadFollowupScheduler {
       const candidates = await this.prisma.lead.findMany({
         where: {
           deletedAt: null,
-          status: { in: Array.from(ELIGIBLE_LEAD_STATUSES) },
+          status: { in: ELIGIBLE_LEAD_STATUSES },
           lastInteractionAt: { gte: minAt, lte: maxAt },
           OR: [
             { lastFollowUpAt: null },

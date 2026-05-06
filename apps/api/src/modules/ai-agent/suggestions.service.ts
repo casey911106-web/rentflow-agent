@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@rentflow/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 
@@ -88,7 +89,7 @@ export class SuggestionsService {
             companyId,
             suggestionId: id,
             state: suggestion.state,
-            contextSnapshot: this.buildContextSnapshot(suggestion),
+            contextSnapshot: this.buildContextSnapshot(suggestion) as Prisma.InputJsonValue,
             aiSuggestion: suggestion.suggestedReply,
             operatorEdit: trimmed,
             enabled: true,
