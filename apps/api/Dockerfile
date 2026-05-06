@@ -9,7 +9,14 @@ FROM node:20-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 ENV CI=true
-RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+# Prisma's schema engine binary needs `openssl` + `ca-certificates` at runtime;
+# the Debian slim base image ships only libssl3 by default. Without these,
+# `prisma migrate deploy` fails with "Schema engine error: undefined".
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && corepack enable \
+ && corepack prepare pnpm@9.12.0 --activate
 
 # ---- 2. Dependencies (cached layer) -----------------------------------------
 FROM base AS deps
@@ -47,7 +54,12 @@ FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+# Same OpenSSL requirement as the base stage — Prisma's runtime engine needs it.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && corepack enable \
+ && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 
 # Bring over the entire installed workspace (node_modules + built dist + prisma)
