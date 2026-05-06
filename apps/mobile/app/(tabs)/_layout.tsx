@@ -1,4 +1,5 @@
 import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function TabsLayout() {
   return (
@@ -11,9 +12,27 @@ export default function TabsLayout() {
         headerTintColor: '#FFFFFF',
       }}
     >
-      <Tabs.Screen name="today" options={{ title: "Today's viewings" }} />
-      <Tabs.Screen name="performance" options={{ title: 'My performance' }} />
-      <Tabs.Screen name="notifications" options={{ title: 'Notifications' }} />
+      <Tabs.Screen
+        name="today"
+        options={{
+          title: "Today's viewings",
+          tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="performance"
+        options={{
+          title: 'My performance',
+          tabBarIcon: ({ color, size }) => <Ionicons name="stats-chart-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: 'Notifications',
+          tabBarIcon: ({ color, size }) => <Ionicons name="notifications-outline" color={color} size={size} />,
+        }}
+      />
     </Tabs>
   );
 }

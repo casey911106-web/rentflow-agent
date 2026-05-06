@@ -56,3 +56,4 @@ temp/
 
 # Local backup dumps from scripts/backup-supabase.sh
 backups/
+.env.bak*
