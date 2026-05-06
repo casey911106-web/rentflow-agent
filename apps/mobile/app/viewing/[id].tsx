@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   Text,
@@ -10,6 +11,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { api, uploadFile } from '../../lib/api';
 
 interface ViewingDetail {
@@ -190,6 +192,45 @@ export default function ViewingDetailScreen() {
         <Text style={cardLabel}>Lead</Text>
         <Text style={cardTitle}>{viewing.lead.fullName ?? viewing.lead.phoneE164}</Text>
         <Text style={cardSubtitle}>{viewing.lead.phoneE164}</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+          <Pressable
+            onPress={() => Linking.openURL(`tel:${viewing.lead.phoneE164}`)}
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#00A7A5',
+              padding: 10,
+              borderRadius: 8,
+              gap: 6,
+            }}
+          >
+            <Ionicons name="call" color="white" size={16} />
+            <Text style={{ color: 'white', fontWeight: '600' }}>Call</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              const phone = viewing.lead.phoneE164.replace(/[^0-9]/g, '');
+              Linking.openURL(`whatsapp://send?phone=${phone}`).catch(() =>
+                Linking.openURL(`https://wa.me/${phone}`),
+              );
+            }}
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#25D366',
+              padding: 10,
+              borderRadius: 8,
+              gap: 6,
+            }}
+          >
+            <Ionicons name="logo-whatsapp" color="white" size={16} />
+            <Text style={{ color: 'white', fontWeight: '600' }}>WhatsApp</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Schedule */}

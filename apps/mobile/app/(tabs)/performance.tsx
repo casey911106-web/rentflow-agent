@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from 'react-native';
-import { api } from '../../lib/api';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { api, clearToken } from '../../lib/api';
 
 interface Me {
   id: string;
@@ -23,11 +25,17 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export default function PerformanceScreen() {
+  const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function logout() {
+    await clearToken();
+    router.replace('/login');
+  }
 
   async function load() {
     setError(null);
@@ -106,6 +114,25 @@ export default function PerformanceScreen() {
           More breakdown (no-show rate, conversion %, week / month / year) will appear here once you have completed viewings.
         </Text>
       </View>
+
+      <Pressable
+        onPress={logout}
+        style={{
+          marginTop: 16,
+          backgroundColor: 'white',
+          padding: 14,
+          borderRadius: 12,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          borderWidth: 1,
+          borderColor: '#FECACA',
+        }}
+      >
+        <Ionicons name="log-out-outline" color="#DC2626" size={18} />
+        <Text style={{ color: '#DC2626', fontWeight: '600' }}>Sign out</Text>
+      </Pressable>
     </ScrollView>
   );
 }
