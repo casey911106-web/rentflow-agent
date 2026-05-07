@@ -9,6 +9,12 @@ import { renderTemplate } from './template';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_TOKENS = 1024;
+// SDK default is maxRetries=2 with ~0.5s/1s backoff (~5s total). The Meta
+// WhatsApp webhook deadline is ~20s, so we lift retries to 4 to ride out
+// transient 529 (overloaded) / 5xx spikes. Per-request timeout caps a single
+// hung call so it can't eat the whole webhook budget.
+const DEFAULT_MAX_RETRIES = 4;
+const DEFAULT_REQUEST_TIMEOUT_MS = 12_000;
 
 export interface AnthropicProviderConfig {
   apiKey: string;
@@ -38,7 +44,12 @@ export class AnthropicProvider implements AiProvider {
     if (!config.apiKey) {
       throw new Error('AnthropicProvider: apiKey is required.');
     }
-    this.client = new Anthropic({ apiKey: config.apiKey, baseURL: config.baseUrl });
+    this.client = new Anthropic({
+      apiKey: config.apiKey,
+      baseURL: config.baseUrl,
+      maxRetries: DEFAULT_MAX_RETRIES,
+      timeout: DEFAULT_REQUEST_TIMEOUT_MS,
+    });
     this.defaultModel = config.model ?? DEFAULT_MODEL;
   }
 

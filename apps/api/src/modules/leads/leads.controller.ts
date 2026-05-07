@@ -2,11 +2,13 @@ import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.decorator';
 import { LeadsService } from './leads.service';
 import type { LeadStatus, LeadTemperature } from '@rentflow/database';
 
 @ApiTags('leads')
 @Controller('leads')
+@Roles('super_admin', 'ops_manager')
 export class LeadsController {
   constructor(private readonly leads: LeadsService) {}
 

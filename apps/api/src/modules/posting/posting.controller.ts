@@ -2,10 +2,12 @@ import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.decorator';
 import { PostingService } from './posting.service';
 
 @ApiTags('posting')
 @Controller('post-packages')
+@Roles('super_admin', 'ops_manager')
 export class PostingController {
   constructor(private readonly posting: PostingService) {}
 

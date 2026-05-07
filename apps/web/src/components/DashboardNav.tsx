@@ -25,22 +25,35 @@ import {
 } from 'lucide-react';
 import { PendingSuggestionsBadge } from '@/components/PendingSuggestionsBadge';
 import { clearToken } from '@/lib/api';
+import { hasAnyRole, useMe, type Role } from '@/lib/auth';
 
-const NAV: Array<{ href: string; label: string; icon: React.ReactNode; badge?: React.ReactNode }> = [
-  { href: '/dashboard',    label: 'Overview',     icon: <Home size={18} /> },
-  { href: '/properties',   label: 'Properties',   icon: <Building2 size={18} /> },
-  { href: '/owners',       label: 'Owners',       icon: <ClipboardCheck size={18} /> },
-  { href: '/leads',        label: 'Leads',        icon: <Users size={18} /> },
-  { href: '/suggestions',  label: 'Suggestions',  icon: <Sparkles size={18} />, badge: <PendingSuggestionsBadge /> },
-  { href: '/whatsapp',     label: 'WhatsApp',     icon: <MessageCircle size={18} /> },
-  { href: '/viewings',     label: 'Viewings',     icon: <Calendar size={18} /> },
-  { href: '/issues',       label: 'Issues',       icon: <AlertTriangle size={18} /> },
-  { href: '/posting',      label: 'Fast Posting', icon: <Megaphone size={18} /> },
-  { href: '/deals',        label: 'Deals',        icon: <Wallet size={18} /> },
-  { href: '/analytics',    label: 'Analytics',    icon: <BarChart3 size={18} /> },
-  { href: '/how-it-works', label: 'How it works', icon: <HelpCircle size={18} /> },
-  { href: '/admin/users',  label: 'Users',        icon: <UserCog size={18} /> },
-  { href: '/settings',     label: 'Settings',     icon: <Settings size={18} /> },
+const ALL_ROLES: Role[] = ['super_admin', 'ops_manager', 'field_agent'];
+const ADMIN_OPS: Role[] = ['super_admin', 'ops_manager'];
+const SUPER_ONLY: Role[] = ['super_admin'];
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+  badge?: React.ReactNode;
+  roles: Role[];
+}
+
+const NAV: NavItem[] = [
+  { href: '/dashboard',    label: 'Overview',     icon: <Home size={18} />,           roles: ALL_ROLES },
+  { href: '/properties',   label: 'Properties',   icon: <Building2 size={18} />,      roles: ALL_ROLES },
+  { href: '/owners',       label: 'Owners',       icon: <ClipboardCheck size={18} />, roles: ADMIN_OPS },
+  { href: '/leads',        label: 'Leads',        icon: <Users size={18} />,          roles: ADMIN_OPS },
+  { href: '/suggestions',  label: 'Suggestions',  icon: <Sparkles size={18} />,       roles: ADMIN_OPS, badge: <PendingSuggestionsBadge /> },
+  { href: '/whatsapp',     label: 'WhatsApp',     icon: <MessageCircle size={18} />,  roles: ADMIN_OPS },
+  { href: '/viewings',     label: 'Viewings',     icon: <Calendar size={18} />,       roles: ALL_ROLES },
+  { href: '/issues',       label: 'Issues',       icon: <AlertTriangle size={18} />,  roles: ALL_ROLES },
+  { href: '/posting',      label: 'Fast Posting', icon: <Megaphone size={18} />,      roles: ADMIN_OPS },
+  { href: '/deals',        label: 'Deals',        icon: <Wallet size={18} />,         roles: ADMIN_OPS },
+  { href: '/analytics',    label: 'Analytics',    icon: <BarChart3 size={18} />,      roles: ADMIN_OPS },
+  { href: '/how-it-works', label: 'How it works', icon: <HelpCircle size={18} />,     roles: ALL_ROLES },
+  { href: '/admin/users',  label: 'Users',        icon: <UserCog size={18} />,        roles: SUPER_ONLY },
+  { href: '/settings',     label: 'Settings',     icon: <Settings size={18} />,       roles: ALL_ROLES },
 ];
 
 function isActive(pathname: string | null, href: string) {
@@ -87,6 +100,9 @@ export function DashboardNav() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const { data: me } = useMe();
+
+  const visibleNav = NAV.filter((item) => hasAnyRole(me?.roles, item.roles));
 
   function handleLogout() {
     clearToken();
@@ -168,7 +184,7 @@ export function DashboardNav() {
           </button>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-          {NAV.map((item) => (
+          {visibleNav.map((item) => (
             <NavLink
               key={item.href}
               href={item.href}

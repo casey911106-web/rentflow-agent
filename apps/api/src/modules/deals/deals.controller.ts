@@ -2,10 +2,12 @@ import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.decorator';
 import { DealsService } from './deals.service';
 
 @ApiTags('deals')
 @Controller('deals')
+@Roles('super_admin', 'ops_manager')
 export class DealsController {
   constructor(private readonly deals: DealsService) {}
 

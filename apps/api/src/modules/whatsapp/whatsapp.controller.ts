@@ -2,10 +2,12 @@ import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.decorator';
 import { WhatsAppService } from './whatsapp.service';
 
 @ApiTags('whatsapp')
 @Controller('whatsapp')
+@Roles('super_admin', 'ops_manager')
 export class WhatsAppController {
   constructor(private readonly wa: WhatsAppService) {}
 

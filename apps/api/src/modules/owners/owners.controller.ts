@@ -2,10 +2,12 @@ import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.decorator';
 import { OwnersService } from './owners.service';
 
 @ApiTags('owners')
 @Controller('owners')
+@Roles('super_admin', 'ops_manager')
 export class OwnersController {
   constructor(private readonly owners: OwnersService) {}
 

@@ -2,10 +2,12 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.decorator';
 import { SuggestionsService } from './suggestions.service';
 
 @ApiTags('suggestions')
 @Controller('suggestions')
+@Roles('super_admin', 'ops_manager')
 export class SuggestionsController {
   constructor(private readonly suggestions: SuggestionsService) {}
 
