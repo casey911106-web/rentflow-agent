@@ -56,13 +56,17 @@ export default async function MarketplacePage({
 
   return (
     <div className="min-h-screen bg-offwhite">
-      <header className="bg-navy-deep text-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-8">
-          <div>
-            <p className="text-lg font-bold">RentFlow Agent</p>
-            <p className="text-xs text-slate-300">Available rentals in Dubai</p>
-          </div>
-          <Link href="/login" className="text-xs text-slate-300 hover:text-white">
+      <header className="bg-white shadow-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-8">
+          <Link href="/" className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/logo-mark.png" alt="" className="h-10 w-10" />
+            <div>
+              <p className="text-base font-bold text-navy-deep">RentFlow Agent</p>
+              <p className="text-xs text-gray-medium">Available rentals in Dubai</p>
+            </div>
+          </Link>
+          <Link href="/login" className="text-xs text-gray-medium hover:text-navy-deep">
             Operator login →
           </Link>
         </div>

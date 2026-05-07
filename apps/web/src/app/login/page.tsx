@@ -33,7 +33,13 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-offwhite p-6">
       <div className="w-full max-w-md rounded-md bg-white p-8 shadow-card">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-navy-deep">RentFlow Agent</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/logo-horizontal.png"
+            alt="RentFlow Agent"
+            className="mx-auto h-16 w-auto"
+          />
+          <h1 className="sr-only">RentFlow Agent</h1>
           <p className="mt-2 text-sm text-gray-medium">Rental conversion operating system</p>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">

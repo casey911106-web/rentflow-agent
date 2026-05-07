@@ -86,6 +86,11 @@ export class ViewingsService {
       fieldAgentId?: string;
     },
   ) {
+    let fieldAgentId = body.fieldAgentId;
+    if (!fieldAgentId) {
+      const picked = await this.pickFieldAgent(companyId);
+      if (picked) fieldAgentId = picked;
+    }
     return this.prisma.viewing.create({
       data: {
         companyId,
@@ -93,11 +98,32 @@ export class ViewingsService {
         propertyId: body.propertyId,
         scheduledAt: new Date(body.scheduledAt),
         durationMinutes: body.durationMinutes ?? 30,
-        fieldAgentId: body.fieldAgentId,
-        status: body.fieldAgentId ? 'assigned' : 'requested',
-        assignmentStatus: body.fieldAgentId ? 'pending' : 'pending',
+        fieldAgentId,
+        status: fieldAgentId ? 'assigned' : 'requested',
+        assignmentStatus: fieldAgentId ? 'accepted' : 'pending',
       },
     });
+  }
+
+  /** Round-robin LRU pick across active field agents. Mirrors SchedulerService.pickFieldAgent. */
+  private async pickFieldAgent(companyId: string): Promise<string | null> {
+    const agents = await this.prisma.fieldAgent.findMany({
+      where: { companyId, active: true, user: { deletedAt: null, status: 'active' } },
+      select: { id: true },
+    });
+    if (agents.length === 0) return null;
+    const last = await this.prisma.viewing.groupBy({
+      by: ['fieldAgentId'],
+      where: { companyId, fieldAgentId: { in: agents.map((a) => a.id) } },
+      _max: { createdAt: true },
+    });
+    const lastMap = new Map(last.map((r) => [r.fieldAgentId!, r._max.createdAt]));
+    agents.sort((a, b) => {
+      const ta = lastMap.get(a.id)?.getTime() ?? 0;
+      const tb = lastMap.get(b.id)?.getTime() ?? 0;
+      return ta - tb;
+    });
+    return agents[0].id;
   }
 
   async updateStatus(user: JwtPayload, id: string, status: ViewingStatus, notes?: string) {

@@ -79,12 +79,14 @@ export default async function PropertyPublicPage({
 
   return (
     <div className="min-h-screen bg-offwhite">
-      <header className="bg-navy-deep text-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 md:px-8">
-          <Link href="/" className="flex items-center gap-2 text-sm text-slate-300 hover:text-white">
-            ← Back to all rentals
+      <header className="bg-white shadow-sm">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 md:px-8">
+          <Link href="/" className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/logo-mark.png" alt="" className="h-9 w-9" />
+            <span className="text-sm font-semibold text-navy-deep">← Back to all rentals</span>
           </Link>
-          <Link href="/login" className="text-xs text-slate-300 hover:text-white">Operator login</Link>
+          <Link href="/login" className="text-xs text-gray-medium hover:text-navy-deep">Operator login</Link>
         </div>
       </header>
 
