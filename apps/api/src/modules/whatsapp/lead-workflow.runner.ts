@@ -4,6 +4,15 @@ import { WhatsAppAdapterProvider } from './adapter.provider';
 import { isOptOut } from './parsers';
 import { SuggestionEngineService, type LeadState } from '../ai-agent/suggestion-engine.service';
 import { OperatorNotifierService } from '../ai-agent/operator-notifier.service';
+import { SuggestionsService } from '../ai-agent/suggestions.service';
+
+/**
+ * Confidence threshold above which the system auto-approves the suggestion
+ * and sends it to the lead without waiting for the operator. Below this,
+ * the suggestion stays pending. The AI's `escalate` flag always disables
+ * auto-approve regardless of confidence.
+ */
+const AUTO_APPROVE_CONFIDENCE = 0.85;
 
 interface RunInput {
   companyId: string;
@@ -35,6 +44,8 @@ export class LeadWorkflowRunner {
     private readonly engine: SuggestionEngineService,
     @Inject(forwardRef(() => OperatorNotifierService))
     private readonly notifier: OperatorNotifierService,
+    @Inject(forwardRef(() => SuggestionsService))
+    private readonly suggestions: SuggestionsService,
   ) {}
 
   async run(input: RunInput): Promise<void> {
@@ -132,8 +143,38 @@ export class LeadWorkflowRunner {
       });
     }
 
-    // Push to operator phone (Capa 2). Failures here are logged but never
-    // bubble up — the dashboard inbox is always authoritative.
+    const conf = result.payload.confidence ?? 0;
+    const escalate = result.payload.escalate ?? false;
+    const autoApprove = conf >= AUTO_APPROVE_CONFIDENCE && !escalate;
+
+    if (autoApprove) {
+      // Resolve a 'system' user — the company's first super_admin — to record
+      // the approval against, since SuggestionsService.approve needs a userId.
+      const sysUser = await this.prisma.user.findFirst({
+        where: {
+          companyId: input.companyId,
+          deletedAt: null,
+          status: 'active',
+          roles: { has: 'super_admin' },
+        },
+        select: { id: true },
+      });
+      if (!sysUser) {
+        this.logger.warn(`No super_admin found for auto-approve; falling back to operator review`);
+      } else {
+        try {
+          await this.suggestions.approve(input.companyId, suggestion.id, sysUser.id);
+          this.logger.log(`Auto-approved suggestion=${suggestion.id} (confidence=${conf})`);
+          return;
+        } catch (err) {
+          this.logger.warn(
+            `Auto-approve failed for suggestion=${suggestion.id}: ${(err as Error).message}; falling back to operator notification`,
+          );
+        }
+      }
+    }
+
+    // Fall through: operator-in-the-loop. Push to operator phone (Capa 2).
     try {
       await this.notifier.notifyNewSuggestion(suggestion.id);
     } catch (err) {
