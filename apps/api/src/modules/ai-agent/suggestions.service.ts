@@ -175,12 +175,13 @@ export class SuggestionsService {
     }
 
     // If the suggestion mentions a specific property via /p/<code>, send the
-    // property's hero photo with the text as caption — WhatsApp renders it as
-    // a single rich card. Falls back to plain text if the property has no
-    // media or the image send fails.
+    // property's hero media (photo or video) with the text as caption —
+    // WhatsApp renders it as a single rich card. Prefers an image when both
+    // exist (faster on data, plays inline); otherwise sends the first media.
+    // Falls back to plain text if no usable media or the media send fails.
     const codeMatch = text.match(/\/p\/([A-Z0-9-]+)/i);
     let result = null as Awaited<ReturnType<typeof this.waAdapter.adapter.sendText>> | null;
-    let messageType: 'text' | 'image' | 'template' = 'text';
+    let messageType: 'text' | 'image' | 'video' | 'template' = 'text';
 
     if (codeMatch) {
       const code = codeMatch[1]!;
@@ -189,26 +190,32 @@ export class SuggestionsService {
         select: {
           media: {
             orderBy: { position: 'asc' },
-            take: 1,
+            take: 10,
             select: { file: { select: { id: true, mimeType: true } } },
           },
         },
       });
-      const photo = property?.media[0]?.file;
-      if (photo && photo.mimeType.startsWith('image/')) {
+      const allMedia = property?.media ?? [];
+      // Prefer first image; if none, take first video; else nothing.
+      const heroPhoto = allMedia.find((m) => m.file.mimeType.startsWith('image/'))?.file;
+      const heroVideo = allMedia.find((m) => m.file.mimeType.startsWith('video/'))?.file;
+      const hero = heroPhoto ?? heroVideo;
+      const heroType: 'image' | 'video' | null = heroPhoto ? 'image' : heroVideo ? 'video' : null;
+
+      if (hero && heroType) {
         const apiBase = process.env.PUBLIC_API_URL ?? 'https://rentflow-api.rentalho.com';
         const mediaResult = await this.waAdapter.adapter.sendMedia({
           to: conv.leadPhoneE164,
-          type: 'image',
-          mediaUrl: `${apiBase}/public/files/${photo.id}`,
+          type: heroType,
+          mediaUrl: `${apiBase}/public/files/${hero.id}`,
           caption: text,
           conversationId: conv.id,
         });
         if (mediaResult.status !== 'failed') {
           result = mediaResult;
-          messageType = 'image';
+          messageType = heroType;
         } else {
-          this.logger.warn(`Image send failed (${mediaResult.error}); falling back to text`);
+          this.logger.warn(`${heroType} send failed (${mediaResult.error}); falling back to text`);
         }
       }
     }
