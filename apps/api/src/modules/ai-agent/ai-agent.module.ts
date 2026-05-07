@@ -5,9 +5,10 @@ import { SuggestionsService } from './suggestions.service';
 import { SuggestionsController } from './suggestions.controller';
 import { OperatorNotifierService } from './operator-notifier.service';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { SchedulerModule } from '../scheduler/scheduler.module';
 
 @Module({
-  imports: [forwardRef(() => WhatsAppModule)],
+  imports: [forwardRef(() => WhatsAppModule), SchedulerModule],
   controllers: [SuggestionsController],
   providers: [AiProviderRef, SuggestionEngineService, SuggestionsService, OperatorNotifierService],
   exports: [AiProviderRef, SuggestionEngineService, SuggestionsService, OperatorNotifierService],

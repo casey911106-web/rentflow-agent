@@ -2,6 +2,11 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import type { Prisma } from '@rentflow/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
+import { SchedulerService } from '../scheduler/scheduler.service';
+
+const SCHEDULER_PLACEHOLDER_RE = /\{\{\s*SCHEDULER_LINK\s*\}\}/g;
+const SCHEDULER_INTENT_RE =
+  /(?:te (?:paso|env[íi]o|enviar[ée]?)|i(?:'| wi)?ll send|i can send|let me send|here(?:'s| is)).{0,40}link.{0,40}(?:pick|choose|escojas|elegir|day|time|d[íi]a|hora|schedule|agend)/i;
 
 @Injectable()
 export class SuggestionsService {
@@ -10,6 +15,7 @@ export class SuggestionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly waAdapter: WhatsAppAdapterProvider,
+    private readonly scheduler: SchedulerService,
   ) {}
 
   list(companyId: string, status?: string) {
@@ -165,7 +171,17 @@ export class SuggestionsService {
   }
 
   private async sendToLead(
-    suggestion: { conversation: { id: string; leadPhoneE164: string; mode: string } | null; companyId: string; conversationId: string; lead: { fullName: string | null; preferredArea: string | null } },
+    suggestion: {
+      conversation: { id: string; leadPhoneE164: string; mode: string } | null;
+      companyId: string;
+      conversationId: string;
+      leadId: string;
+      lead: {
+        fullName: string | null;
+        preferredArea: string | null;
+        property?: { code: string } | null;
+      };
+    },
     text: string,
   ): Promise<{ messageId: string }> {
     const conv = suggestion.conversation;
@@ -174,12 +190,17 @@ export class SuggestionsService {
       throw new BadRequestException('Conversation is closed (lead opted out).');
     }
 
-    // If the suggestion mentions a specific property via /p/<code>, send the
-    // property's hero media (photo or video) with the text as caption —
-    // WhatsApp renders it as a single rich card. Prefers an image when both
-    // exist (faster on data, plays inline); otherwise sends the first media.
-    // Falls back to plain text if no usable media or the media send fails.
-    const codeMatch = text.match(/\/p\/([A-Z0-9-]+)/i);
+    // Resolve property code from /p/<CODE> in text (preferred) or the lead's
+    // linked property as fallback. Used both for media attach and scheduler link.
+    const inlineCodeMatch = text.match(/\/p\/([A-Z0-9-]+)/i);
+    const propertyCode = inlineCodeMatch?.[1] ?? suggestion.lead.property?.code ?? null;
+
+    // Substitute scheduler link placeholder with a real, single-use token URL.
+    // We accept either the explicit `{{SCHEDULER_LINK}}` placeholder or the
+    // legacy phrasing patterns the AI was trained with.
+    text = await this.injectSchedulerLink(text, suggestion.companyId, suggestion.leadId, propertyCode);
+
+    const codeMatch = inlineCodeMatch ?? (propertyCode ? text.match(/\/p\/([A-Z0-9-]+)/i) : null);
     let result = null as Awaited<ReturnType<typeof this.waAdapter.adapter.sendText>> | null;
     let messageType: 'text' | 'image' | 'video' | 'template' = 'text';
 
@@ -303,5 +324,45 @@ export class SuggestionsService {
       leadId: suggestion.leadId,
       capturedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Substitute the scheduler-link placeholder (or legacy "I'll send a link"
+   * phrasings) with a real one-time booking URL. If we can't determine a
+   * property to book against, we strip the placeholder and append a friendly
+   * note so the lead never sees `{{SCHEDULER_LINK}}` literally.
+   */
+  private async injectSchedulerLink(
+    text: string,
+    companyId: string,
+    leadId: string,
+    propertyCode: string | null,
+  ): Promise<string> {
+    const hasPlaceholder = SCHEDULER_PLACEHOLDER_RE.test(text);
+    SCHEDULER_PLACEHOLDER_RE.lastIndex = 0; // reset stateful global regex
+    const hasIntent = !hasPlaceholder && SCHEDULER_INTENT_RE.test(text);
+    if (!hasPlaceholder && !hasIntent) return text;
+
+    if (!propertyCode) {
+      this.logger.warn(`Scheduler placeholder/intent in suggestion but no propertyCode resolvable (lead=${leadId})`);
+      return text.replace(SCHEDULER_PLACEHOLDER_RE, '').trim();
+    }
+
+    let token: { id: string };
+    try {
+      token = await this.scheduler.issueBookingToken(companyId, leadId, propertyCode);
+    } catch (err) {
+      this.logger.warn(`Failed to issue scheduler token for ${propertyCode}: ${(err as Error).message}`);
+      return text.replace(SCHEDULER_PLACEHOLDER_RE, '').trim();
+    }
+
+    const base = process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
+    const url = `${base}/p/${propertyCode}/schedule?t=${token.id}`;
+
+    if (hasPlaceholder) {
+      return text.replace(SCHEDULER_PLACEHOLDER_RE, url);
+    }
+    // Legacy intent: append URL on a new line so the lead actually receives it.
+    return `${text.trimEnd()}\n${url}`;
   }
 }
