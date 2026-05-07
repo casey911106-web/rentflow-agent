@@ -2,13 +2,49 @@
   "expo": {
     "name": "RentFlow Agent",
     "slug": "rentflow-agent",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "rentflow",
-    "ios": { "supportsTablet": false },
-    "android": { "package": "com.rentflow.agent" },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.rentflow.agent",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "RentFlow uses the camera so field agents can photograph property condition during viewings and upload them to the listing.",
+        "NSPhotoLibraryUsageDescription": "RentFlow needs access to your photos so you can upload property images and content from your gallery.",
+        "NSPhotoLibraryAddUsageDescription": "RentFlow saves marketing photos for the property listings you publish to your camera roll.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.rentflow.agent",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES"
+      ]
+    },
     "web": { "bundler": "metro" },
-    "plugins": ["expo-router"]
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "RentFlow needs access to your photos so you can upload property images.",
+          "cameraPermission": "RentFlow uses the camera to capture property condition during viewings."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "RentFlow saves listing photos to your camera roll for posting on classifieds and groups.",
+          "savePhotosPermission": "RentFlow needs to save photos to your camera roll.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
+    ]
   }
 }
