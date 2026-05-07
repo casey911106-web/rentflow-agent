@@ -62,7 +62,7 @@ async function main() {
   let created = 0;
 
   for (const prop of properties) {
-    const priceLine = prop.priceAed ? `AED ${Number(prop.priceAed).toLocaleString()} / night` : '';
+    const priceLine = prop.priceAed ? `AED ${Number(prop.priceAed).toLocaleString()} / month` : '';
     const availabilityLine = 'Available now';
     const shortCaption = `${prop.name} — ${priceLine}. ${availabilityLine}.`;
     const longCaption =

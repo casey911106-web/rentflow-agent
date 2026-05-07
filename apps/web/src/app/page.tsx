@@ -211,7 +211,7 @@ function PropertyCard({ property }: { property: PublicProperty }) {
         <div className="mt-2 flex items-end justify-between">
           <p className="text-base font-bold text-navy-deep">
             {property.priceAed ? `AED ${Number(property.priceAed).toLocaleString()}` : '—'}
-            <span className="text-xs font-normal text-gray-medium">/night</span>
+            <span className="text-xs font-normal text-gray-medium">/month</span>
           </p>
           {property.occupancyMax ? (
             <p className="text-xs text-gray-medium">Up to {property.occupancyMax} guests</p>

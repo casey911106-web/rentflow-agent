@@ -84,14 +84,49 @@ export class PlacementsService {
         notes: dto.notes ?? null,
       },
     });
+    // Don't auto-fulfill the assignment here — the publisher must reach the
+    // minimum placement count and explicitly tap 'Mark complete'.
+    return placement;
+  }
 
-    // Mark any pending assignment for this (user, package) as fulfilled.
-    await this.prisma.postAssignment.updateMany({
-      where: { assigneeUserId: publisherUserId, postPackageId, status: 'pending' },
+  /** Placements the current user logged for this package (any status). */
+  listMyForPackage(companyId: string, userId: string, postPackageId: string) {
+    return this.prisma.postPlacement.findMany({
+      where: { companyId, postPackageId, publisherUserId: userId, removedAt: null },
+      orderBy: { publishedAt: 'desc' },
+    });
+  }
+
+  /** Mark a publisher's assignment as fulfilled (requires >= MIN_PLACEMENTS). */
+  async completeAssignment(
+    companyId: string,
+    userId: string,
+    assignmentId: string,
+    minPlacements = 3,
+  ) {
+    const assignment = await this.prisma.postAssignment.findFirst({
+      where: { id: assignmentId, companyId, assigneeUserId: userId, status: 'pending' },
+    });
+    if (!assignment) throw new NotFoundException('Assignment not found or already closed');
+
+    const count = await this.prisma.postPlacement.count({
+      where: {
+        companyId,
+        postPackageId: assignment.postPackageId,
+        publisherUserId: userId,
+        removedAt: null,
+      },
+    });
+    if (count < minPlacements) {
+      throw new BadRequestException(
+        `Need at least ${minPlacements} placements to mark this task complete (you have ${count}).`,
+      );
+    }
+
+    return this.prisma.postAssignment.update({
+      where: { id: assignmentId },
       data: { status: 'fulfilled', fulfilledAt: new Date() },
     });
-
-    return placement;
   }
 
   /** Mark a placement as removed (the post was taken down or unpublished). */

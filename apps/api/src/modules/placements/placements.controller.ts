@@ -57,6 +57,19 @@ export class PlacementsController {
     return this.placements.listForPackage(user.companyId, id);
   }
 
+  /** Caller's placements on a specific Fast Posting — used by mobile to gate
+   *  the 'Mark complete' button until 3+ placements logged. */
+  @Get('post-packages/:id/placements/mine')
+  myForPackage(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.placements.listMyForPackage(user.companyId, user.sub, id);
+  }
+
+  /** Mark an assignment as fulfilled. Requires 3+ placements by this user. */
+  @Post('post-assignments/:id/complete')
+  completeAssignment(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.placements.completeAssignment(user.companyId, user.sub, id);
+  }
+
   /** Mark a placement as removed (taken down). Publisher self or admin only. */
   @Delete('placements/:id')
   remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {

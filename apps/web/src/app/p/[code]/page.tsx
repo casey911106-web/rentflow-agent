@@ -126,7 +126,7 @@ export default async function PropertyPublicPage({
             <div className="mb-4 rounded-md bg-white p-4 shadow-card">
               <p className="text-2xl font-bold text-navy-deep">
                 {property.priceAed ? `AED ${Number(property.priceAed).toLocaleString()}` : '—'}
-                <span className="text-sm font-normal text-gray-medium">/night</span>
+                <span className="text-sm font-normal text-gray-medium">/month</span>
               </p>
               {property.occupancyMax ? (
                 <p className="mt-1 text-sm text-gray-medium">Sleeps up to {property.occupancyMax} guests</p>
