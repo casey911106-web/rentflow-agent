@@ -4,6 +4,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { PlacementsScheduler } from './placements.scheduler';
 import { PlacementsService } from './placements.service';
 
 interface CreateBody {
@@ -17,7 +18,18 @@ interface CreateBody {
 @ApiTags('placements')
 @Controller()
 export class PlacementsController {
-  constructor(private readonly placements: PlacementsService) {}
+  constructor(
+    private readonly placements: PlacementsService,
+    private readonly scheduler: PlacementsScheduler,
+  ) {}
+
+  /** Trigger the round-robin assignment cycle now (super_admin only). */
+  @Post('admin/publishing/round-robin/run')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin')
+  triggerRoundRobin() {
+    return this.scheduler.runManually();
+  }
 
   /** Mobile + dashboard: list pending publishing tasks for me. */
   @Get('me/assigned-postings')
