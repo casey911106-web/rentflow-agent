@@ -173,16 +173,58 @@ export class SuggestionsService {
     if (conv.mode === 'closed') {
       throw new BadRequestException('Conversation is closed (lead opted out).');
     }
-    let result = await this.waAdapter.adapter.sendText({
-      to: conv.leadPhoneE164,
-      body: text,
-      conversationId: conv.id,
-    });
 
-    // If text fails because the 24h customer-service window expired, retry
-    // with the lead_followup_24h UTILITY template. Custom AI text is lost in
-    // this fallback — the template is fixed copy with name + area variables.
-    let usedTemplate = false;
+    // If the suggestion mentions a specific property via /p/<code>, send the
+    // property's hero photo with the text as caption — WhatsApp renders it as
+    // a single rich card. Falls back to plain text if the property has no
+    // media or the image send fails.
+    const codeMatch = text.match(/\/p\/([A-Z0-9-]+)/i);
+    let result = null as Awaited<ReturnType<typeof this.waAdapter.adapter.sendText>> | null;
+    let messageType: 'text' | 'image' | 'template' = 'text';
+
+    if (codeMatch) {
+      const code = codeMatch[1]!;
+      const property = await this.prisma.property.findUnique({
+        where: { companyId_code: { companyId: suggestion.companyId, code } },
+        select: {
+          media: {
+            orderBy: { position: 'asc' },
+            take: 1,
+            select: { file: { select: { id: true, mimeType: true } } },
+          },
+        },
+      });
+      const photo = property?.media[0]?.file;
+      if (photo && photo.mimeType.startsWith('image/')) {
+        const apiBase = process.env.PUBLIC_API_URL ?? 'https://rentflow-api.rentalho.com';
+        const mediaResult = await this.waAdapter.adapter.sendMedia({
+          to: conv.leadPhoneE164,
+          type: 'image',
+          mediaUrl: `${apiBase}/public/files/${photo.id}`,
+          caption: text,
+          conversationId: conv.id,
+        });
+        if (mediaResult.status !== 'failed') {
+          result = mediaResult;
+          messageType = 'image';
+        } else {
+          this.logger.warn(`Image send failed (${mediaResult.error}); falling back to text`);
+        }
+      }
+    }
+
+    if (!result) {
+      result = await this.waAdapter.adapter.sendText({
+        to: conv.leadPhoneE164,
+        body: text,
+        conversationId: conv.id,
+      });
+      messageType = 'text';
+    }
+
+    // If text/image fails because the 24h customer-service window expired,
+    // retry with the lead_followup_24h UTILITY template. Custom AI text is
+    // lost in this fallback — the template is fixed copy with name + area.
     if (result.status === 'failed' && /131047|outside.*window|re.?engagement/i.test(result.error ?? '')) {
       this.logger.warn(`24h window expired for ${conv.leadPhoneE164}; falling back to lead_followup_24h template`);
       const firstName = suggestion.lead.fullName?.split(/\s+/)[0] || 'there';
@@ -193,7 +235,7 @@ export class SuggestionsService {
         variables: { '1': firstName, '2': area },
         conversationId: conv.id,
       });
-      usedTemplate = true;
+      messageType = 'template';
     }
 
     const message = await this.prisma.whatsAppMessage.create({
@@ -202,7 +244,7 @@ export class SuggestionsService {
         conversationId: conv.id,
         externalId: result.externalId || null,
         direction: 'outbound',
-        type: usedTemplate ? 'template' : 'text',
+        type: messageType,
         body: text,
         providerStatus: result.status,
         providerError: result.error,
