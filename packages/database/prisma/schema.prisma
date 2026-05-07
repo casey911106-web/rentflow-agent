@@ -254,6 +254,7 @@ model Company {
   postChannels             PostChannel[]
   trackingLinks            TrackingLink[]
   viewings                 Viewing[]
+  scheduleTokens           ViewingScheduleToken[]
   deals                    Deal[]
   notifications            Notification[]
   automationRules          AutomationRule[]
@@ -513,6 +514,7 @@ model Property {
   viewings              Viewing[]
   deals                 Deal[]
   ownerAvailabilityChecks OwnerAvailabilityCheck[]
+  scheduleTokens        ViewingScheduleToken[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -681,6 +683,7 @@ model Lead {
   deal                   Deal?
   aiSessions             AIAgentSession[]
   suggestions            Suggestion[]
+  scheduleTokens         ViewingScheduleToken[]
 
   @@index([companyId, status])
   @@index([companyId, temperature])
@@ -910,6 +913,29 @@ model PostPlacement {
   @@index([publisherUserId, publishedAt])
 }
 
+/// One-shot signed-style token issued when the AI agent or operator wants
+/// to send the lead a self-service viewing scheduler link. Validated on
+/// the public scheduler endpoint to authorise booking or rescheduling.
+/// Either bookingFor a fresh viewing, or attached to an existing viewingId
+/// for reschedule.
+model ViewingScheduleToken {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id])
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id])
+  viewingId   String?  // set for reschedule tokens
+  viewing     Viewing? @relation(fields: [viewingId], references: [id])
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, leadId])
+  @@index([viewingId])
+}
+
 /// Round-robin assignments: every hour the scheduler picks the next eligible
 /// publisher and creates an Assignment row for each active PostPackage. The
 /// publisher fulfills it by adding PostPlacement rows. Assignment closes
@@ -980,6 +1006,7 @@ model Viewing {
   updatedAt       DateTime              @updatedAt
 
   feedback        ViewingFeedback?
+  scheduleTokens  ViewingScheduleToken[]
 
   @@index([companyId, scheduledAt])
   @@index([companyId, status])

@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { ScoreBadge, StatusPill } from '@rentflow/ui';
@@ -19,11 +20,33 @@ interface PropertyRow {
   _count: { leads: number; postPackages: number; viewings: number };
 }
 
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'available', label: 'Available' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'pending_owner_confirmation', label: 'Pending owner' },
+  { value: 'rented', label: 'Rented' },
+  { value: 'blocked', label: 'Blocked' },
+  { value: 'unavailable', label: 'Unavailable' },
+  { value: 'archived', label: 'Archived' },
+  { value: 'needs_media', label: 'Needs media' },
+  { value: 'needs_price_confirmation', label: 'Needs price' },
+  { value: 'not_ready_to_post', label: 'Not ready' },
+];
+
 export default function PropertiesPage() {
+  const [statusFilter, setStatusFilter] = useState<string>('available');
+
   const { data, isLoading } = useQuery({
     queryKey: ['properties'],
     queryFn: () => api<PropertyRow[]>('/properties'),
   });
+
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    if (statusFilter === 'all') return data;
+    return data.filter((p) => p.status === statusFilter);
+  }, [data, statusFilter]);
 
   return (
     <div>
@@ -32,12 +55,23 @@ export default function PropertiesPage() {
           <h1>Properties</h1>
           <p className="mt-1 text-sm text-gray-medium">Inventory + readiness gate for posting.</p>
         </div>
-        <Link
-          href="/properties/new"
-          className="inline-flex items-center gap-2 rounded-md bg-teal px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#008C8A]"
-        >
-          + Add property
-        </Link>
+        <div className="flex items-center gap-3">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="rounded-md border border-gray-light bg-white px-3 py-2.5 text-sm font-medium text-gray-dark shadow-sm focus:border-teal focus:outline-none focus:ring-1 focus:ring-teal"
+          >
+            {STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <Link
+            href="/properties/new"
+            className="inline-flex items-center gap-2 rounded-md bg-teal px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#008C8A]"
+          >
+            + Add property
+          </Link>
+        </div>
       </header>
 
       <div className="overflow-x-auto rounded-md border border-gray-light bg-white shadow-card">
@@ -59,10 +93,12 @@ export default function PropertiesPage() {
           <tbody>
             {isLoading ? (
               <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-medium">Loading…</td></tr>
-            ) : !data?.length ? (
-              <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-medium">No properties yet.</td></tr>
+            ) : !filtered.length ? (
+              <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-medium">
+                {statusFilter === 'all' ? 'No properties yet.' : 'No properties match this filter.'}
+              </td></tr>
             ) : (
-              data.map((p) => (
+              filtered.map((p) => (
                 <tr key={p.id} className="border-t border-gray-light hover:bg-offwhite">
                   <td className="px-4 py-3 font-mono text-xs">{p.code}</td>
                   <td className="px-4 py-3 font-semibold">
