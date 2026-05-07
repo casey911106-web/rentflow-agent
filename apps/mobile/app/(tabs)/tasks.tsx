@@ -119,7 +119,12 @@ export default function TasksScreen() {
         renderItem={({ item }) => <AssignmentCard a={item} onOpen={() => setActive(item)} />}
       />
 
-      <Modal visible={!!active} animationType="slide" onRequestClose={() => setActive(null)}>
+      <Modal
+        visible={!!active}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setActive(null)}
+      >
         {active ? <PublishFlow a={active} onClose={() => { setActive(null); load(); }} /> : null}
       </Modal>
     </View>
@@ -257,16 +262,17 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
       Alert.alert('No photos', 'This property has no media.');
       return;
     }
+    const toOpen = allPhotos.slice(0, 5);
     Alert.alert(
       'Download photos',
-      `Open all ${allPhotos.length} photos in browser. Long-press each to save.`,
+      `Open the top ${toOpen.length} photos in browser. Long-press each to save to camera roll.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Open',
           onPress: () => {
-            allPhotos.forEach((m, i) => {
-              setTimeout(() => Linking.openURL(`${API_BASE}/public/files/${m.file.id}`), i * 300);
+            toOpen.forEach((m, i) => {
+              setTimeout(() => Linking.openURL(`${API_BASE}/public/files/${m.file.id}`), i * 400);
             });
           },
         },
@@ -320,7 +326,9 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
             style={{ flex: 1, backgroundColor: '#0F766E', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
           >
             <Ionicons name="download-outline" color="white" size={18} />
-            <Text style={{ color: 'white', fontWeight: '700' }}>Photos ({allPhotos.length})</Text>
+            <Text style={{ color: 'white', fontWeight: '700' }}>
+              Photos (top {Math.min(5, allPhotos.length)})
+            </Text>
           </Pressable>
         </View>
 

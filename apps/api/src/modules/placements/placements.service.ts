@@ -35,7 +35,7 @@ export class PlacementsService {
                 priceAed: true,
                 media: {
                   orderBy: { position: 'asc' },
-                  take: 1,
+                  take: 10,
                   select: { file: { select: { id: true, mimeType: true } } },
                 },
               },
