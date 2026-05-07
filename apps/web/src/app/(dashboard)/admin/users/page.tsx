@@ -131,8 +131,11 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [phoneE164, setPhoneE164] = useState('');
   const [password, setPassword] = useState('');
   const [roles, setRoles] = useState<Role[]>(['ops_manager']);
+  const [createFieldAgent, setCreateFieldAgent] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const isFieldAgent = roles.includes('field_agent');
 
   function toggleRole(r: Role) {
     setRoles((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
@@ -145,7 +148,14 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
     try {
       await api('/users', {
         method: 'POST',
-        body: JSON.stringify({ email, fullName, password, roles, phoneE164: phoneE164 || undefined }),
+        body: JSON.stringify({
+          email,
+          fullName,
+          password,
+          roles,
+          phoneE164: phoneE164 || undefined,
+          createFieldAgent: isFieldAgent ? createFieldAgent : false,
+        }),
       });
       onCreated();
       onClose();
@@ -181,6 +191,23 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
             ))}
           </div>
         </Field>
+        {isFieldAgent ? (
+          <label className="flex items-start gap-2 rounded-md bg-teal/5 p-3">
+            <input
+              type="checkbox"
+              checked={createFieldAgent}
+              onChange={(e) => setCreateFieldAgent(e.target.checked)}
+              className="mt-0.5 h-4 w-4"
+            />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-navy-deep">Also create FieldAgent profile</p>
+              <p className="text-xs text-gray-medium">
+                Required for the mobile app: enables today&apos;s viewings, performance scoring,
+                round-robin assignment. Leave checked unless this user is only an ops backup.
+              </p>
+            </div>
+          </label>
+        ) : null}
         {err ? <p className="text-sm text-danger">{err}</p> : null}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="rounded-md px-4 py-2 text-sm">Cancel</button>

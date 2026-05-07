@@ -39,7 +39,7 @@ export class UsersService {
 
   async create(
     companyId: string,
-    dto: { email: string; fullName: string; password: string; roles: string[]; phoneE164?: string },
+    dto: { email: string; fullName: string; password: string; roles: string[]; phoneE164?: string; createFieldAgent?: boolean },
   ) {
     assertValidRoles(dto.roles);
     const existing = await this.prisma.user.findFirst({
@@ -48,7 +48,10 @@ export class UsersService {
     if (existing) throw new BadRequestException('A user with that email already exists');
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    return this.prisma.user.create({
+    const wantsFieldAgent =
+      dto.createFieldAgent !== false && dto.roles.includes('field_agent');
+
+    const user = await this.prisma.user.create({
       data: {
         companyId,
         email: dto.email,
@@ -57,6 +60,9 @@ export class UsersService {
         passwordHash,
         roles: dto.roles as RoleName[],
         status: 'active',
+        ...(wantsFieldAgent
+          ? { fieldAgent: { create: { companyId, active: true } } }
+          : {}),
       },
       select: {
         id: true,
@@ -66,8 +72,10 @@ export class UsersService {
         status: true,
         phoneE164: true,
         createdAt: true,
+        fieldAgent: { select: { id: true } },
       },
     });
+    return user;
   }
 
   async updateRoles(companyId: string, userId: string, roles: string[]) {

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { ArrayMinSize, IsArray, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
 import { Roles } from '../auth/roles.decorator';
@@ -13,6 +13,7 @@ class CreateUserDto {
   @IsString() @MinLength(8) password!: string;
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) roles!: string[];
   @IsOptional() @IsString() phoneE164?: string;
+  @IsOptional() @IsBoolean() createFieldAgent?: boolean;
 }
 
 class UpdateRolesDto {
