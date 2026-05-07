@@ -59,6 +59,7 @@ export class PostingController {
   }
 
   @Post(':id/mark-published')
+  @Roles('super_admin', 'ops_manager', 'field_agent')
   markPublished(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

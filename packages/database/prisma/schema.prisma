@@ -249,6 +249,8 @@ model Company {
   leads                    Lead[]
   campaigns                Campaign[]
   postPackages             PostPackage[]
+  postPlacements           PostPlacement[]
+  postAssignments          PostAssignment[]
   postChannels             PostChannel[]
   trackingLinks            TrackingLink[]
   viewings                 Viewing[]
@@ -293,6 +295,8 @@ model User {
   notifications       Notification[]
   publishedPackages   PostPackage[] @relation("PublishedByUser")
   approvedPackages    PostPackage[] @relation("ApprovedByUser")
+  postPlacements      PostPlacement[] @relation("PostPlacementPublisher")
+  postAssignments     PostAssignment[] @relation("PostAssignmentAssignee")
   auditLogs           AuditLog[]
   fileUploads         FileUpload[]
   decidedSuggestions  Suggestion[]   @relation("SuggestionDecidedBy")
@@ -874,9 +878,59 @@ model PostPackage {
 
   trackingLink        TrackingLink?
   leads               Lead[]
+  placements          PostPlacement[]
+  assignments         PostAssignment[]
 
   @@index([companyId, status])
   @@index([propertyId])
+}
+
+/// One row per actual external publication of a PostPackage. Publishers
+/// (ops_managers + field_agents) record each place they posted the listing
+/// so we can measure effort, total reach, and per-channel performance.
+model PostPlacement {
+  id              String      @id @default(uuid())
+  companyId       String
+  company         Company     @relation(fields: [companyId], references: [id])
+  postPackageId   String
+  postPackage     PostPackage @relation(fields: [postPackageId], references: [id])
+  publisherUserId String
+  publisher       User        @relation("PostPlacementPublisher", fields: [publisherUserId], references: [id])
+
+  channelName     String      // "Dubai Marina FB Group", "PropertyFinder.ae", "Telegram Real Estate UAE"
+  channelKind     String?     // facebook_group | classified | telegram | whatsapp_group | instagram | other
+  externalUrl     String?     // direct link to the live post if shareable
+  groupSize       Int?        // estimated audience reach (group members, page followers)
+  notes           String?
+
+  publishedAt     DateTime    @default(now())
+  removedAt       DateTime?
+
+  @@index([companyId, postPackageId])
+  @@index([publisherUserId, publishedAt])
+}
+
+/// Round-robin assignments: every hour the scheduler picks the next eligible
+/// publisher and creates an Assignment row for each active PostPackage. The
+/// publisher fulfills it by adding PostPlacement rows. Assignment closes
+/// when at least one placement is logged or after 24h (whichever first).
+model PostAssignment {
+  id              String      @id @default(uuid())
+  companyId       String
+  company         Company     @relation(fields: [companyId], references: [id])
+  postPackageId   String
+  postPackage     PostPackage @relation(fields: [postPackageId], references: [id])
+  assigneeUserId  String
+  assignee        User        @relation("PostAssignmentAssignee", fields: [assigneeUserId], references: [id])
+
+  status          String      @default("pending") // pending | fulfilled | expired
+  assignedAt      DateTime    @default(now())
+  fulfilledAt     DateTime?
+  expiresAt       DateTime    // assignedAt + 24h
+
+  @@index([companyId, status])
+  @@index([assigneeUserId, status])
+  @@index([postPackageId, status])
 }
 
 model TrackingLink {

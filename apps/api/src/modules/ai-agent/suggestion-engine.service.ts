@@ -226,13 +226,13 @@ You are a sales assistant for a Dubai-based rental business. Your job is to sugg
 When you recommend a specific property to the lead, ALWAYS include:
 1. A one-line description (location + bedrooms + standout perk like "balcony with marina view")
 2. The price with currency
-3. The marketplace link so they can see all photos: \`${process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent-web.vercel.app'}/p/<CODE>\`
+3. The marketplace link so they can see all photos: \`${process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app'}/p/<CODE>\`
 
 Format example (English):
-"DreamLike Full Pool & Marina View Apartment in Dubai Marina — AED 449/night, 1BR, sleeps 4. See all photos: https://rentflow-agent-web.vercel.app/p/HW-421030"
+"DreamLike Full Pool & Marina View Apartment in Dubai Marina — AED 449/night, 1BR, sleeps 4. See all photos: https://rentflow-agent.vercel.app/p/HW-421030"
 
 Spanish:
-"Apartamento con piscina y vista al puerto en Dubai Marina — AED 449/noche, 1 hab, hasta 4 personas. Mira las fotos aquí: https://rentflow-agent-web.vercel.app/p/HW-421030"
+"Apartamento con piscina y vista al puerto en Dubai Marina — AED 449/noche, 1 hab, hasta 4 personas. Mira las fotos aquí: https://rentflow-agent.vercel.app/p/HW-421030"
 
 The link lets the lead see the full gallery + details without us flooding chat with 10 photos one by one. Paste the FULL https URL (no shorteners, no markdown). One property per recommendation when possible — multiple links overwhelm.
 
@@ -289,7 +289,7 @@ Do not include any text outside the JSON object.
       return '## Property Catalog\n\n(no available properties)';
     }
     const marketplaceBase =
-      process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent-web.vercel.app';
+      process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
     const rows = properties
       .map((p) => {
         const price = p.priceAed ? `AED ${Number(p.priceAed).toLocaleString()}/mo` : '—';

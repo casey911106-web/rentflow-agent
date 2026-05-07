@@ -1,0 +1,140 @@
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+
+interface CreatePlacementDto {
+  channelName: string;
+  channelKind?: string;
+  externalUrl?: string;
+  groupSize?: number;
+  notes?: string;
+}
+
+@Injectable()
+export class PlacementsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /** Pending assignments for the current user. */
+  async listMyAssignments(userId: string, companyId: string) {
+    return this.prisma.postAssignment.findMany({
+      where: { assigneeUserId: userId, companyId, status: 'pending' },
+      orderBy: { assignedAt: 'desc' },
+      include: {
+        postPackage: {
+          select: {
+            id: true,
+            title: true,
+            shortCaption: true,
+            whatsappCaption: true,
+            status: true,
+            property: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                area: true,
+                priceAed: true,
+                media: {
+                  orderBy: { position: 'asc' },
+                  take: 1,
+                  select: { file: { select: { id: true, mimeType: true } } },
+                },
+              },
+            },
+            trackingLink: { select: { shortUrl: true, whatsappUrl: true } },
+            _count: { select: { placements: true } },
+          },
+        },
+      },
+    });
+  }
+
+  /** All placements for a PostPackage. */
+  async listForPackage(companyId: string, postPackageId: string) {
+    return this.prisma.postPlacement.findMany({
+      where: { companyId, postPackageId, removedAt: null },
+      orderBy: { publishedAt: 'desc' },
+      include: { publisher: { select: { id: true, fullName: true, email: true } } },
+    });
+  }
+
+  /** Create a placement; closes the user's pending assignment for this package. */
+  async create(
+    companyId: string,
+    publisherUserId: string,
+    postPackageId: string,
+    dto: CreatePlacementDto,
+  ) {
+    if (!dto.channelName?.trim()) {
+      throw new BadRequestException('channelName is required');
+    }
+    const pkg = await this.prisma.postPackage.findFirst({
+      where: { id: postPackageId, companyId, deletedAt: null },
+    });
+    if (!pkg) throw new NotFoundException('PostPackage not found');
+
+    const placement = await this.prisma.postPlacement.create({
+      data: {
+        companyId,
+        postPackageId,
+        publisherUserId,
+        channelName: dto.channelName.trim(),
+        channelKind: dto.channelKind ?? null,
+        externalUrl: dto.externalUrl ?? null,
+        groupSize: dto.groupSize ?? null,
+        notes: dto.notes ?? null,
+      },
+    });
+
+    // Mark any pending assignment for this (user, package) as fulfilled.
+    await this.prisma.postAssignment.updateMany({
+      where: { assigneeUserId: publisherUserId, postPackageId, status: 'pending' },
+      data: { status: 'fulfilled', fulfilledAt: new Date() },
+    });
+
+    return placement;
+  }
+
+  /** Mark a placement as removed (the post was taken down or unpublished). */
+  async remove(companyId: string, userId: string, isAdmin: boolean, placementId: string) {
+    const placement = await this.prisma.postPlacement.findFirst({
+      where: { id: placementId, companyId },
+    });
+    if (!placement) throw new NotFoundException();
+    if (!isAdmin && placement.publisherUserId !== userId) {
+      throw new ForbiddenException('Only the publisher or an admin can remove this placement');
+    }
+    return this.prisma.postPlacement.update({
+      where: { id: placementId },
+      data: { removedAt: new Date() },
+    });
+  }
+
+  /** Publisher leaderboard for a date window (default last 30 days). */
+  async leaderboard(companyId: string, sinceDays = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - sinceDays);
+
+    const rows = await this.prisma.postPlacement.groupBy({
+      by: ['publisherUserId'],
+      where: { companyId, publishedAt: { gte: since }, removedAt: null },
+      _count: { _all: true },
+      _sum: { groupSize: true },
+    });
+
+    if (rows.length === 0) return [];
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: rows.map((r) => r.publisherUserId) } },
+      select: { id: true, fullName: true, email: true, roles: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return rows
+      .map((r) => ({
+        user: userMap.get(r.publisherUserId) ?? null,
+        placements: r._count._all,
+        totalReach: r._sum.groupSize ?? 0,
+      }))
+      .sort((a, b) => b.totalReach - a.totalReach);
+  }
+}
