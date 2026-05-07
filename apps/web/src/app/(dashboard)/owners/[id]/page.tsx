@@ -6,6 +6,20 @@ import { useEffect, useState } from 'react';
 import { ScoreBadge, StatusPill } from '@rentflow/ui';
 import { api } from '@/lib/api';
 
+interface UnownedProperty {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  status: string;
+  area: string | null;
+  priceAed: string | null;
+  qualityScore: number;
+  readinessScore: number;
+  owner: { fullName: string } | null;
+  _count: { leads: number; postPackages: number; viewings: number };
+}
+
 interface OwnerDetail {
   id: string;
   fullName: string;
@@ -55,6 +69,28 @@ export default function OwnerDetailPage({ params }: { params: { id: string } }) 
   const [dirty, setDirty] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [triggered, setTriggered] = useState<number | null>(null);
+  const [propertyToAssign, setPropertyToAssign] = useState<string>('');
+
+  const { data: allProperties } = useQuery({
+    queryKey: ['properties'],
+    queryFn: () => api<UnownedProperty[]>('/properties'),
+  });
+
+  const unownedProperties = (allProperties ?? []).filter((p) => !p.owner);
+
+  const assignProperty = useMutation({
+    mutationFn: (propertyId: string) =>
+      api(`/properties/${propertyId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ownerId: params.id }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['owners', params.id] });
+      qc.invalidateQueries({ queryKey: ['properties'] });
+      setPropertyToAssign('');
+    },
+    onError: (err) => setActionError((err as Error).message),
+  });
 
   useEffect(() => {
     if (owner) {
@@ -208,9 +244,37 @@ export default function OwnerDetailPage({ params }: { params: { id: string } }) 
         <section className="space-y-4 xl:col-span-8">
           {/* Properties */}
           <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
-            <h3 className="mb-3 text-sm uppercase tracking-wide text-gray-medium">
-              Properties ({owner.properties.length})
-            </h3>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm uppercase tracking-wide text-gray-medium">
+                Properties ({owner.properties.length})
+              </h3>
+              <div className="flex items-center gap-2">
+                <select
+                  value={propertyToAssign}
+                  onChange={(e) => setPropertyToAssign(e.target.value)}
+                  disabled={unownedProperties.length === 0 || assignProperty.isPending}
+                  className="rounded-md border border-gray-light bg-white px-2.5 py-1.5 text-xs text-gray-dark focus:border-teal focus:outline-none disabled:opacity-50"
+                >
+                  <option value="">
+                    {unownedProperties.length === 0
+                      ? 'No unowned properties'
+                      : `Assign unowned property (${unownedProperties.length})`}
+                  </option>
+                  {unownedProperties.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.code} — {p.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => propertyToAssign && assignProperty.mutate(propertyToAssign)}
+                  disabled={!propertyToAssign || assignProperty.isPending}
+                  className="rounded-md bg-teal px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
+                >
+                  {assignProperty.isPending ? 'Assigning…' : 'Assign'}
+                </button>
+              </div>
+            </div>
             {owner.properties.length === 0 ? (
               <p className="text-sm text-gray-medium">No properties linked yet.</p>
             ) : (

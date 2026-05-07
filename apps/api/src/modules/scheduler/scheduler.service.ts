@@ -34,10 +34,14 @@ export class SchedulerService {
 
   /** Issue a fresh booking token (called from the AI agent flow). */
   async issueBookingToken(companyId: string, leadId: string, propertyCode: string) {
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, companyId, deletedAt: null },
+    });
+    if (!lead) throw new NotFoundException(`Lead ${leadId} not found`);
     const property = await this.prisma.property.findFirst({
       where: { companyId, code: propertyCode, deletedAt: null },
     });
-    if (!property) throw new NotFoundException('Property not found');
+    if (!property) throw new NotFoundException(`Property ${propertyCode} not found`);
     return this.createToken(companyId, leadId, property.id, null);
   }
 
