@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Linking,
   Modal,
   Pressable,
@@ -127,11 +128,10 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
       }}
     >
       {photo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          alt=""
-          src={`${API_BASE}/public/files/${photo.id}`}
-          style={{ width: '100%', height: 160, objectFit: 'cover', display: 'block' } as never}
+        <Image
+          source={{ uri: `${API_BASE}/public/files/${photo.id}` }}
+          style={{ width: '100%', height: 160 }}
+          resizeMode="cover"
         />
       ) : null}
       <View style={{ padding: 14 }}>
@@ -212,11 +212,10 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
             <Text style={{ color: '#64748B' }}>{prop?.name}</Text>
 
             {photo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                alt=""
-                src={`${API_BASE}/public/files/${photo.id}`}
-                style={{ width: '100%', height: 220, objectFit: 'cover', borderRadius: 8, marginTop: 12 } as never}
+              <Image
+                source={{ uri: `${API_BASE}/public/files/${photo.id}` }}
+                style={{ width: '100%', height: 220, borderRadius: 8, marginTop: 12 }}
+                resizeMode="cover"
               />
             ) : null}
 
