@@ -416,7 +416,7 @@ ${profile}
 ${lastMessages}
 
 ## Task
-Based on the recent messages and the workflow state, suggest the next reply to send. Respond with the JSON object only, no surrounding text.`;
+The lead may have sent several short [LEAD] lines in a row before pausing — treat every [LEAD] line that appears AFTER the most recent [US] line as a single combined question and answer ALL of them together in one reply. Don't ignore earlier [LEAD] lines just because a newer one arrived. Respond with the JSON object only, no surrounding text.`;
   }
 
   private coerceToPayload(parsed: unknown, fallbackText: string): SuggestionPayload | null {

@@ -33,7 +33,8 @@
     "production": {
       "ios": {
         "appleId": "casey911106@gmail.com",
-        "appleTeamId": "RW3799QY9F"
+        "appleTeamId": "RW3799QY9F",
+        "ascAppId": "6767253900"
       }
     }
   }

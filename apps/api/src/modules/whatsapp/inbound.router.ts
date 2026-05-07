@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { parseAttribution } from '@rentflow/shared';
 import type { InboundMessage } from '@rentflow/integrations';
 import { PrismaService } from '../../prisma/prisma.service';
-import { LeadWorkflowRunner } from './lead-workflow.runner';
+import { InboundDebouncer } from './inbound-debouncer.service';
 import { OperatorInboundHandler } from './operator-inbound.handler';
 import { OwnerReplyParser } from '../automation/owner-reply.parser';
 
@@ -12,7 +12,7 @@ export class InboundRouter {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly runner: LeadWorkflowRunner,
+    private readonly debouncer: InboundDebouncer,
     private readonly operatorHandler: OperatorInboundHandler,
     @Inject(forwardRef(() => OwnerReplyParser))
     private readonly ownerParser: OwnerReplyParser,
@@ -110,21 +110,15 @@ export class InboundRouter {
       leadId = lead.id;
     }
 
-    // Trigger the lead workflow runner. We swallow errors here so a runner
-    // failure never blocks ingestion of the underlying message.
+    // Schedule the lead workflow with a 10s debounce per conversation so
+    // multi-line messages ("¿precio?\n¿deposit?\n¿día libre?") collapse into
+    // a single Claude call once the lead pauses.
     if (leadId) {
-      try {
-        await this.runner.run({
-          companyId: company.id,
-          leadId,
-          conversationId: conversation.id,
-          inboundMessageId: stored.id,
-        });
-      } catch (err) {
-        this.logger.error(
-          `Lead workflow runner failed for lead=${leadId}: ${(err as Error).message}`,
-        );
-      }
+      this.debouncer.schedule({
+        companyId: company.id,
+        leadId,
+        conversationId: conversation.id,
+      });
     }
 
     return { leadId, conversationId: conversation.id, messageId: stored.id };

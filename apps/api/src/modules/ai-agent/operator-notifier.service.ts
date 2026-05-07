@@ -37,7 +37,12 @@ export class OperatorNotifierService {
     if (!suggestion || !suggestion.conversation) return;
     if (suggestion.status !== 'pending') return;
 
-    const body = this.formatBody(suggestion);
+    const leadQuestions = await this.fetchUnansweredInbound(
+      suggestion.conversationId,
+      suggestion.createdAt,
+    );
+
+    const body = this.formatBody(suggestion, leadQuestions);
     const result = await this.waAdapter.adapter.sendInteractiveButtons({
       to: operator,
       header: '🤖 RentFlow suggestion',
@@ -60,22 +65,68 @@ export class OperatorNotifierService {
     }
   }
 
-  private formatBody(s: {
-    lead: { fullName: string | null; phoneE164: string; property: { code: string; name: string } | null };
-    state: string;
-    suggestedReply: string;
-    confidence: number | null;
-    escalate: boolean;
-  }): string {
+  private formatBody(
+    s: {
+      lead: { fullName: string | null; phoneE164: string; property: { code: string; name: string } | null };
+      state: string;
+      suggestedReply: string;
+      confidence: number | null;
+      escalate: boolean;
+    },
+    leadQuestions: string[],
+  ): string {
     const lines: string[] = [];
     const leadLabel = s.lead.fullName ?? s.lead.phoneE164;
     lines.push(`*${leadLabel}*${s.lead.property ? ` · ${s.lead.property.code}` : ''}`);
     lines.push(`State: ${s.state.replace(/_/g, ' ')}`);
     if (s.escalate) lines.push('⚠️ AI flagged this for escalation');
+
+    if (leadQuestions.length > 0) {
+      lines.push('');
+      lines.push(leadQuestions.length === 1 ? 'Lead asked:' : `Lead asked (${leadQuestions.length}):`);
+      for (const q of leadQuestions) {
+        lines.push(`• ${this.truncate(q, 240)}`);
+      }
+    }
+
     lines.push('');
     lines.push('Suggested reply:');
     lines.push(`"${this.truncate(s.suggestedReply, 700)}"`);
     return lines.join('\n');
+  }
+
+  /**
+   * Fetch all inbound text messages in the conversation that arrived after
+   * the last outbound (operator/AI) message, OR all of them if there's no
+   * outbound yet. Capped at the most recent 10 to keep the WhatsApp body
+   * within the 1024-char interactive-message limit.
+   */
+  private async fetchUnansweredInbound(
+    conversationId: string,
+    upTo: Date,
+  ): Promise<string[]> {
+    const lastOutbound = await this.prisma.whatsAppMessage.findFirst({
+      where: { conversationId, direction: 'outbound' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    const messages = await this.prisma.whatsAppMessage.findMany({
+      where: {
+        conversationId,
+        direction: 'inbound',
+        createdAt: {
+          ...(lastOutbound ? { gt: lastOutbound.createdAt } : {}),
+          lte: upTo,
+        },
+        body: { not: null },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
+      select: { body: true },
+    });
+    return messages
+      .map((m) => (m.body ?? '').trim())
+      .filter((t) => t.length > 0);
   }
 
   private formatFooter(s: { confidence: number | null }): string {
