@@ -18,12 +18,21 @@
     },
     "production": {
       "android": { "buildType": "app-bundle" },
+      "ios": {
+        "buildConfiguration": "Release",
+        "credentialsSource": "remote"
+      },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://rentflow-api.rentalho.com"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "casey911106@gmail.com",
+        "appleTeamId": "RW3799QY9F"
+      }
+    }
   }
 }
