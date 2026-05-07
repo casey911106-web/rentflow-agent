@@ -21,6 +21,33 @@ interface PropertyDetail {
   availabilityBlocks: Array<{ startsAt: string; endsAt: string }>;
 }
 
+function MediaTile({
+  mediaUrl,
+  mimeType,
+  alt,
+  className,
+}: {
+  mediaUrl: string;
+  mimeType: string;
+  alt: string;
+  className?: string;
+}) {
+  if (mimeType.startsWith('video/')) {
+    return (
+      // eslint-disable-next-line jsx-a11y/media-has-caption
+      <video
+        src={mediaUrl}
+        className={className}
+        controls
+        preload="metadata"
+        playsInline
+      />
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={mediaUrl} alt={alt} className={className} />;
+}
+
 const TYPE_LABEL: Record<string, string> = {
   studio: 'Studio',
   one_bedroom: '1 Bedroom',
@@ -76,42 +103,47 @@ export default async function PropertyPublicPage({
           </p>
         </div>
 
-        {/* Photo gallery */}
-        {property.media.length > 0 ? (
-          <div className="mb-6 grid grid-cols-1 gap-2 md:grid-cols-4">
-            {property.media[0] ? (
-              <div className="md:col-span-2 md:row-span-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`${API_BASE}/public/files/${property.media[0].file.id}`}
-                  alt={property.media[0].caption ?? property.name}
-                  className="h-full w-full rounded-md object-cover"
+        {/* Photo gallery — first image preferred as hero, with mixed image+video tiles */}
+        {property.media.length > 0 ? (() => {
+          const heroIdx = property.media.findIndex((m) => m.file.mimeType.startsWith('image/'));
+          const hero = heroIdx >= 0 ? property.media[heroIdx] : property.media[0];
+          const rest = property.media.filter((_, i) => i !== heroIdx).slice(0, 4);
+          return (
+            <div className="mb-6 grid grid-cols-1 gap-2 md:grid-cols-4">
+              {hero ? (
+                <div className="md:col-span-2 md:row-span-2">
+                  <MediaTile
+                    mediaUrl={`${API_BASE}/public/files/${hero.file.id}`}
+                    mimeType={hero.file.mimeType}
+                    alt={hero.caption ?? property.name}
+                    className="h-full w-full rounded-md object-cover"
+                  />
+                </div>
+              ) : null}
+              {rest.map((m, i) => (
+                <MediaTile
+                  key={i}
+                  mediaUrl={`${API_BASE}/public/files/${m.file.id}`}
+                  mimeType={m.file.mimeType}
+                  alt={m.caption ?? ''}
+                  className="aspect-square w-full rounded-md object-cover"
                 />
-              </div>
-            ) : null}
-            {property.media.slice(1, 5).map((m, i) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={i}
-                src={`${API_BASE}/public/files/${m.file.id}`}
-                alt={m.caption ?? ''}
-                className="aspect-square w-full rounded-md object-cover"
-              />
-            ))}
-          </div>
-        ) : null}
+              ))}
+            </div>
+          );
+        })() : null}
 
         {property.media.length > 5 ? (
           <details className="mb-6 rounded-md bg-white p-4 shadow-card">
             <summary className="cursor-pointer text-sm font-semibold text-teal">
-              See all {property.media.length} photos
+              See all {property.media.length} items
             </summary>
             <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-3">
               {property.media.slice(5).map((m, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <MediaTile
                   key={i}
-                  src={`${API_BASE}/public/files/${m.file.id}`}
+                  mediaUrl={`${API_BASE}/public/files/${m.file.id}`}
+                  mimeType={m.file.mimeType}
                   alt={m.caption ?? ''}
                   className="aspect-square w-full rounded-md object-cover"
                 />

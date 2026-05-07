@@ -114,6 +114,7 @@ export class SuggestionEngineService {
           type: true,
           area: true,
           priceAed: true,
+          depositAed: true,
           occupancyMax: true,
           rentalMinMonths: true,
         },
@@ -190,6 +191,7 @@ export class SuggestionEngineService {
       type: string;
       area: string | null;
       priceAed: { toString(): string } | string | null;
+      depositAed: { toString(): string } | string | null;
       occupancyMax: number | null;
       rentalMinMonths: number | null;
     }>,
@@ -224,8 +226,8 @@ You are a sales assistant for a Dubai-based rental business. Your job is to sugg
 
 ## Mandatory disclosures — include in EVERY property recommendation
 The lead MUST see, in the same message:
-- **Monthly rent** in AED.
-- **Refundable security deposit**: equal to 1 month's rent (state it explicitly: "Refundable deposit: AED <amount>").
+- **Monthly rent** in AED — use the property's `rent` from the catalog.
+- **Refundable security deposit** — use the property's `deposit` from the catalog. NEVER assume rent = deposit; if the catalog shows a deposit number that differs from rent, use the deposit. Only when the catalog explicitly notes "no explicit deposit set" do you fall back to "= 1 month's rent". State as "Refundable deposit: AED <amount>".
 - **One-time commission, paid on deal close**, based on bedrooms:
   - Studio or 1 bedroom: AED 1,000
   - 2 or 3 bedrooms: AED 2,000
@@ -309,6 +311,7 @@ Do not include any text outside the JSON object.
       type: string;
       area: string | null;
       priceAed: { toString(): string } | string | null;
+      depositAed: { toString(): string } | string | null;
       occupancyMax: number | null;
       rentalMinMonths: number | null;
     }>,
@@ -321,9 +324,14 @@ Do not include any text outside the JSON object.
     const rows = properties
       .map((p) => {
         const price = p.priceAed ? `AED ${Number(p.priceAed).toLocaleString()}/mo` : '—';
+        const deposit = p.depositAed
+          ? `AED ${Number(p.depositAed).toLocaleString()}`
+          : p.priceAed
+          ? `AED ${Number(p.priceAed).toLocaleString()} (= 1 month, no explicit deposit set)`
+          : '—';
         const occ = p.occupancyMax ? `, ${p.occupancyMax} pax max` : '';
         const min = p.rentalMinMonths ? `, min ${p.rentalMinMonths}mo` : '';
-        return `- ${p.code} (${p.type.replace(/_/g, ' ')}) in ${p.area ?? '—'}: ${price}${occ}${min} — ${p.name}\n  Link: ${marketplaceBase}/p/${p.code}`;
+        return `- ${p.code} (${p.type.replace(/_/g, ' ')}) in ${p.area ?? '—'}: rent ${price}, deposit ${deposit}${occ}${min} — ${p.name}\n  Link: ${marketplaceBase}/p/${p.code}`;
       })
       .join('\n');
     return `## Property Catalog (currently available)\n\n${rows}`;
