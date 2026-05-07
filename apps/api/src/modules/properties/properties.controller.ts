@@ -15,8 +15,11 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.decorator';
 import { PropertiesService, type CreatePropertyInput } from './properties.service';
 import type { PropertyStatus } from '@rentflow/database';
+
+const ADMIN_OPS = ['super_admin', 'ops_manager'] as const;
 
 @ApiTags('properties')
 @Controller('properties')
@@ -44,6 +47,7 @@ export class PropertiesController {
   }
 
   @Post('issues/:issueId/resolve')
+  @Roles(...ADMIN_OPS)
   resolveIssue(@CurrentUser() user: JwtPayload, @Param('issueId') issueId: string) {
     return this.properties.resolveIssue(user.companyId, issueId);
   }
@@ -54,16 +58,19 @@ export class PropertiesController {
   }
 
   @Post()
+  @Roles(...ADMIN_OPS)
   create(@CurrentUser() user: JwtPayload, @Body() body: CreatePropertyInput) {
     return this.properties.create(user.companyId, body);
   }
 
   @Patch(':id')
+  @Roles(...ADMIN_OPS)
   update(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return this.properties.update(user.companyId, id, body);
   }
 
   @Delete(':id')
+  @Roles(...ADMIN_OPS)
   remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.properties.softDelete(user.companyId, id);
   }
@@ -74,6 +81,7 @@ export class PropertiesController {
   }
 
   @Post(':id/availability-blocks')
+  @Roles(...ADMIN_OPS)
   block(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
@@ -92,6 +100,7 @@ export class PropertiesController {
   }
 
   @Post(':id/media')
+  @Roles(...ADMIN_OPS)
   @UseInterceptors(FileInterceptor('file'))
   uploadMedia(
     @CurrentUser() user: JwtPayload,

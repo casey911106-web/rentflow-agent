@@ -2,7 +2,10 @@ import { Controller, Get, Param } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
+import { Roles } from '../auth/roles.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
+
+const ADMIN_OPS = ['super_admin', 'ops_manager'] as const;
 
 @ApiTags('field-agents')
 @Controller('field-agents')
@@ -10,6 +13,7 @@ export class FieldAgentsController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
+  @Roles(...ADMIN_OPS)
   list(@CurrentUser() user: JwtPayload) {
     return this.prisma.fieldAgent.findMany({
       where: { companyId: user.companyId, active: true },
@@ -22,6 +26,7 @@ export class FieldAgentsController {
   }
 
   @Get(':id')
+  @Roles(...ADMIN_OPS)
   detail(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.prisma.fieldAgent.findFirst({
       where: { id, companyId: user.companyId },

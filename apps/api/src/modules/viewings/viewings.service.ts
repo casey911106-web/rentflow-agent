@@ -1,19 +1,43 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { ViewingStatus } from '@rentflow/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { JwtPayload } from '../auth/jwt.strategy';
 
 @Injectable()
 export class ViewingsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(
-    companyId: string,
+  /**
+   * Resolve the field_agent id to scope queries to, when the caller is a
+   * field_agent without admin/ops privileges. Returns null when no scoping
+   * needed (admin/ops_manager) and `undefined` when the user is field_agent
+   * but has no FieldAgent record (treat as "scoped to nothing").
+   */
+  private async resolveAgentScope(user: JwtPayload): Promise<string | null | undefined> {
+    const isAdminOrOps = user.roles.includes('super_admin') || user.roles.includes('ops_manager');
+    if (isAdminOrOps) return null;
+    if (!user.roles.includes('field_agent')) return undefined;
+    const fa = await this.prisma.fieldAgent.findUnique({
+      where: { userId: user.sub },
+      select: { id: true },
+    });
+    return fa?.id ?? undefined;
+  }
+
+  async list(
+    user: JwtPayload,
     filter: { date?: string; status?: ViewingStatus; agentId?: string; propertyId?: string } = {},
   ) {
-    const where: Record<string, unknown> = { companyId };
+    const scope = await this.resolveAgentScope(user);
+    if (scope === undefined) return [];
+
+    const where: Record<string, unknown> = { companyId: user.companyId };
     if (filter.status) where.status = filter.status;
-    if (filter.agentId) where.fieldAgentId = filter.agentId;
     if (filter.propertyId) where.propertyId = filter.propertyId;
+    // Field-agent callers are forced to their own viewings; the agentId query
+    // param is honored only when the caller has admin/ops privileges.
+    if (scope) where.fieldAgentId = scope;
+    else if (filter.agentId) where.fieldAgentId = filter.agentId;
     if (filter.date) {
       const start = new Date(filter.date);
       const end = new Date(start);
@@ -32,9 +56,15 @@ export class ViewingsService {
     });
   }
 
-  async findById(companyId: string, id: string) {
+  async findById(user: JwtPayload, id: string) {
+    const scope = await this.resolveAgentScope(user);
+    if (scope === undefined) throw new NotFoundException('Viewing not found');
+
+    const where: Record<string, unknown> = { id, companyId: user.companyId };
+    if (scope) where.fieldAgentId = scope;
+
     const v = await this.prisma.viewing.findFirst({
-      where: { id, companyId },
+      where,
       include: {
         property: true,
         lead: { include: { property: true } },
@@ -70,8 +100,8 @@ export class ViewingsService {
     });
   }
 
-  async updateStatus(companyId: string, id: string, status: ViewingStatus, notes?: string) {
-    await this.findById(companyId, id);
+  async updateStatus(user: JwtPayload, id: string, status: ViewingStatus, notes?: string) {
+    await this.findById(user, id);
     const data: Record<string, unknown> = { status };
     if (notes) data.outcomeNotes = notes;
     if (status === 'completed') data.completedAt = new Date();
@@ -79,7 +109,8 @@ export class ViewingsService {
   }
 
   async assignAgent(companyId: string, id: string, fieldAgentId: string) {
-    await this.findById(companyId, id);
+    const v = await this.prisma.viewing.findFirst({ where: { id, companyId } });
+    if (!v) throw new NotFoundException('Viewing not found');
     return this.prisma.viewing.update({
       where: { id },
       data: { fieldAgentId, status: 'assigned', assignmentStatus: 'accepted' },
@@ -87,11 +118,11 @@ export class ViewingsService {
   }
 
   async addFeedback(
-    companyId: string,
+    user: JwtPayload,
     id: string,
     body: { rating?: number; comments?: string; bookingIntent?: string },
   ) {
-    await this.findById(companyId, id);
+    await this.findById(user, id);
     return this.prisma.viewingFeedback.upsert({
       where: { viewingId: id },
       update: body,

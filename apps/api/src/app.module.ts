@@ -22,6 +22,7 @@ import { AutomationModule } from './modules/automation/automation.module';
 import { FilesModule } from './modules/files/files.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { HostawayModule } from './modules/integrations/hostaway/hostaway.module';
+import { PublicModule } from './modules/public/public.module';
 import { SystemDocsModule } from './modules/system-docs/system-docs.module';
 import { HealthModule } from './modules/health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -55,6 +56,7 @@ import { RolesGuard } from './modules/auth/roles.guard';
     AutomationModule,
     NotificationsModule,
     HostawayModule,
+    PublicModule,
     SystemDocsModule,
   ],
   providers: [
