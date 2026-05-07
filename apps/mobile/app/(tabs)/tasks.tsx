@@ -16,6 +16,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 import { api } from '../../lib/api';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://rentflow-api.rentalho.com';
@@ -257,26 +259,48 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
     }
   }
 
-  function downloadPhotos() {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+
+  async function downloadPhotos() {
     if (allPhotos.length === 0) {
       Alert.alert('No photos', 'This property has no media.');
       return;
     }
-    const toOpen = allPhotos.slice(0, 5);
+    const toSave = allPhotos.slice(0, 5);
+
+    // Permissions
+    const perm = await MediaLibrary.requestPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission needed', 'Allow Photos access to save the property images to your camera roll.');
+      return;
+    }
+
+    setDownloading(true);
+    setDownloadProgress(0);
+    let saved = 0;
+    for (let i = 0; i < toSave.length; i++) {
+      const m = toSave[i]!;
+      try {
+        const url = `${API_BASE}/public/files/${m.file.id}`;
+        const ext = m.file.mimeType.includes('png') ? 'png' : m.file.mimeType.includes('webp') ? 'webp' : 'jpg';
+        const localPath = `${FileSystem.cacheDirectory}${prop?.code}-${i + 1}.${ext}`;
+        const result = await FileSystem.downloadAsync(url, localPath);
+        if (result.status === 200) {
+          await MediaLibrary.saveToLibraryAsync(result.uri);
+          saved++;
+        }
+        setDownloadProgress(i + 1);
+      } catch {
+        // skip
+      }
+    }
+    setDownloading(false);
     Alert.alert(
-      'Download photos',
-      `Open the top ${toOpen.length} photos in browser. Long-press each to save to camera roll.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Open',
-          onPress: () => {
-            toOpen.forEach((m, i) => {
-              setTimeout(() => Linking.openURL(`${API_BASE}/public/files/${m.file.id}`), i * 400);
-            });
-          },
-        },
-      ],
+      saved > 0 ? '✓ Saved' : 'Failed',
+      saved > 0
+        ? `${saved} photo${saved > 1 ? 's' : ''} saved to camera roll.`
+        : 'Could not save photos. Try again.',
     );
   }
 
@@ -323,11 +347,14 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
           </Pressable>
           <Pressable
             onPress={downloadPhotos}
-            style={{ flex: 1, backgroundColor: '#0F766E', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+            disabled={downloading}
+            style={{ flex: 1, backgroundColor: downloading ? '#94A3B8' : '#0F766E', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
           >
             <Ionicons name="download-outline" color="white" size={18} />
             <Text style={{ color: 'white', fontWeight: '700' }}>
-              Photos (top {Math.min(5, allPhotos.length)})
+              {downloading
+                ? `Saving ${downloadProgress}/${Math.min(5, allPhotos.length)}…`
+                : `Save ${Math.min(5, allPhotos.length)} photos`}
             </Text>
           </Pressable>
         </View>
