@@ -39,6 +39,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="tasks"
+        options={{
+          title: 'Publish tasks',
+          tabBarIcon: ({ color, size }) => <Ionicons name="megaphone-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
         name="performance"
         options={{
           title: 'My performance',
