@@ -32,9 +32,19 @@ export class PublicController {
     @Query('q') q?: string,
     @Query('sort') sort?: string,
   ) {
+    // Marketplace surface = properties with at least one active Fast Posting
+    // package (operator deliberately listed them) AND status='available'.
+    // 'paused' / 'failed' / 'draft' post packages don't qualify — they're WIP
+    // or de-listed.
     const where: Record<string, unknown> = {
       deletedAt: null,
       status: 'available',
+      postPackages: {
+        some: {
+          deletedAt: null,
+          status: { in: ['generated', 'scheduled', 'pending_approval', 'approved', 'published'] },
+        },
+      },
     };
     if (area) where.area = area;
     if (type) where.type = type;

@@ -222,6 +222,20 @@ You are a sales assistant for a Dubai-based rental business. Your job is to sugg
 6. Escalate (escalate: true) if the lead is angry, complaining, talking about refunds, or asking about something outside rental discovery.
 7. Escalate if the lead uses opt-out keywords (STOP, unsubscribe, "لا تراسلني").
 
+## When recommending a specific property
+When you recommend a specific property to the lead, ALWAYS include:
+1. A one-line description (location + bedrooms + standout perk like "balcony with marina view")
+2. The price with currency
+3. The marketplace link so they can see all photos: \`${process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent-web.vercel.app'}/p/<CODE>\`
+
+Format example (English):
+"DreamLike Full Pool & Marina View Apartment in Dubai Marina — AED 449/night, 1BR, sleeps 4. See all photos: https://rentflow-agent-web.vercel.app/p/HW-421030"
+
+Spanish:
+"Apartamento con piscina y vista al puerto en Dubai Marina — AED 449/noche, 1 hab, hasta 4 personas. Mira las fotos aquí: https://rentflow-agent-web.vercel.app/p/HW-421030"
+
+The link lets the lead see the full gallery + details without us flooding chat with 10 photos one by one. Paste the FULL https URL (no shorteners, no markdown). One property per recommendation when possible — multiple links overwhelm.
+
 ## Workflow stages
 The lead progresses through these stages. The current stage is given in the user prompt.
 1. initial_contact — greet, identify what they want.
@@ -274,12 +288,14 @@ Do not include any text outside the JSON object.
     if (properties.length === 0) {
       return '## Property Catalog\n\n(no available properties)';
     }
+    const marketplaceBase =
+      process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent-web.vercel.app';
     const rows = properties
       .map((p) => {
         const price = p.priceAed ? `AED ${Number(p.priceAed).toLocaleString()}/mo` : '—';
         const occ = p.occupancyMax ? `, ${p.occupancyMax} pax max` : '';
         const min = p.rentalMinMonths ? `, min ${p.rentalMinMonths}mo` : '';
-        return `- ${p.code} (${p.type.replace(/_/g, ' ')}) in ${p.area ?? '—'}: ${price}${occ}${min} — ${p.name}`;
+        return `- ${p.code} (${p.type.replace(/_/g, ' ')}) in ${p.area ?? '—'}: ${price}${occ}${min} — ${p.name}\n  Link: ${marketplaceBase}/p/${p.code}`;
       })
       .join('\n');
     return `## Property Catalog (currently available)\n\n${rows}`;
