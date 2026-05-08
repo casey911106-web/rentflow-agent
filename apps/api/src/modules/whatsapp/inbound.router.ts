@@ -137,11 +137,13 @@ export class InboundRouter {
 
   private async createLeadFromMessage(companyId: string, conversationId: string, msg: InboundMessage) {
     const text = msg.body ?? '';
-    const { propertyCode, postCode } = parseAttribution(text);
+    const { propertyCode, postCode, placementSlug } = parseAttribution(text);
 
     let propertyId: string | undefined;
     let postPackageId: string | undefined;
     let trackingLinkId: string | undefined;
+    let attributionPlacementId: string | undefined;
+    let attributionSource: string | undefined;
     let attributionConfidence: 'high' | 'medium' | 'low' | 'none' = 'none';
 
     if (propertyCode) {
@@ -168,6 +170,28 @@ export class InboundRouter {
       }
     }
 
+    // Owned-channel attribution: a [ref:<slug>] in the first inbound traces
+    // back to a specific PostPlacement (one Telegram/IG/FB post we made).
+    if (placementSlug) {
+      const placement = await this.prisma.postPlacement.findUnique({
+        where: { trackingSlug: placementSlug },
+        select: {
+          id: true,
+          companyId: true,
+          channelKind: true,
+          channelName: true,
+          postPackage: { select: { id: true, propertyId: true } },
+        },
+      });
+      if (placement && placement.companyId === companyId) {
+        attributionPlacementId = placement.id;
+        attributionSource = placement.channelKind ?? placement.channelName;
+        postPackageId = postPackageId ?? placement.postPackage.id;
+        propertyId = propertyId ?? placement.postPackage.propertyId;
+        attributionConfidence = 'high';
+      }
+    }
+
     const sourceRow = await this.prisma.leadSource.create({
       data: {
         companyId,
@@ -184,6 +208,8 @@ export class InboundRouter {
         propertyId,
         postPackageId,
         trackingLinkId,
+        attributionPlacementId,
+        attributionSource,
         sourceId: sourceRow.id,
         whatsappConversationId: conversationId,
         phoneE164: msg.from,
@@ -194,7 +220,9 @@ export class InboundRouter {
       },
     });
 
-    this.logger.log(`Created lead ${lead.id} (${attributionConfidence}) for ${msg.from}`);
+    this.logger.log(
+      `Created lead ${lead.id} (${attributionConfidence}${attributionSource ? `, src=${attributionSource}` : ''}) for ${msg.from}`,
+    );
     return lead;
   }
 }

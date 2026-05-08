@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { ClickBeacon } from './click-beacon';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const WA_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '971585063316';
@@ -66,19 +67,27 @@ async function fetchProperty(code: string): Promise<PropertyDetail | null> {
 
 export default async function PropertyPublicPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ code: string }>;
+  searchParams: Promise<{ s?: string | string[] }>;
 }) {
   const { code } = await params;
+  const sp = await searchParams;
+  const rawSlug = Array.isArray(sp.s) ? sp.s[0] : sp.s;
+  const slug = (rawSlug ?? '').replace(/[^A-Z0-9]/gi, '').slice(0, 16);
   const property = await fetchProperty(code);
   if (!property) notFound();
 
-  const waMessage = encodeURIComponent(
-    `Hi! I'm interested in ${property.code} — ${property.name}. Is it available?`,
-  );
+  // Preserve the slug into the wa.me message so the inbound webhook can
+  // attribute the lead back to the exact placement that brought them here.
+  const baseMsg = `Hi! I'm interested in ${property.code} — ${property.name}. Is it available?`;
+  const messageBody = slug ? `${baseMsg} [ref:${slug.toUpperCase()}]` : baseMsg;
+  const waMessage = encodeURIComponent(messageBody);
 
   return (
     <div className="min-h-screen bg-offwhite">
+      {slug ? <ClickBeacon slug={slug} /> : null}
       <header className="bg-white shadow-sm">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 md:px-8">
           <Link href="/" className="flex items-center gap-2">
