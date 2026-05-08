@@ -85,6 +85,13 @@ export default async function PropertyPublicPage({
   const messageBody = slug ? `${baseMsg} [ref:${slug.toUpperCase()}]` : baseMsg;
   const waMessage = encodeURIComponent(messageBody);
 
+  // Separate intent for "book a viewing" — the AI agent recognises this and
+  // jumps straight to the scheduler link.
+  const baseViewing = `Hi! I'd like to book a viewing for ${property.code} — ${property.name}. When can I see it?`;
+  const viewingBody = slug ? `${baseViewing} [ref:${slug.toUpperCase()}]` : baseViewing;
+  const waViewingMessage = encodeURIComponent(viewingBody);
+  const waBaseUrl = `https://wa.me/${WA_NUMBER}?text=`;
+
   return (
     <div className="min-h-screen bg-offwhite">
       {slug ? <ClickBeacon slug={slug} /> : null}
@@ -99,7 +106,7 @@ export default async function PropertyPublicPage({
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-6 md:px-8">
+      <main className="mx-auto max-w-5xl px-4 py-6 pb-24 md:px-8 md:pb-6">
         {/* Title */}
         <div className="mb-4">
           <div className="mb-2 flex items-center gap-2">
@@ -112,6 +119,26 @@ export default async function PropertyPublicPage({
           <p className="mt-1 text-sm text-gray-medium">
             {property.area ?? '—'}{property.addressLine ? ` · ${property.addressLine}` : ''}
           </p>
+
+          {/* Top-of-page CTAs — visible on every viewport without scrolling */}
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <a
+              href={`${waBaseUrl}${waMessage}`}
+              target="_blank"
+              rel="noopener"
+              className="flex items-center justify-center gap-2 rounded-md bg-[#25D366] px-4 py-3 text-sm font-bold text-white hover:bg-[#1ea957]"
+            >
+              💬 Message on WhatsApp
+            </a>
+            <a
+              href={`${waBaseUrl}${waViewingMessage}`}
+              target="_blank"
+              rel="noopener"
+              className="flex items-center justify-center gap-2 rounded-md bg-teal px-4 py-3 text-sm font-bold text-white hover:bg-[#008C8A]"
+            >
+              📅 Book a viewing
+            </a>
+          </div>
         </div>
 
         {/* Photo gallery — first image preferred as hero, with mixed image+video tiles */}
@@ -222,12 +249,20 @@ export default async function PropertyPublicPage({
                 Send us a WhatsApp and we&apos;ll confirm availability + arrange a viewing.
               </p>
               <a
-                href={`https://wa.me/${WA_NUMBER}?text=${waMessage}`}
+                href={`${waBaseUrl}${waMessage}`}
                 target="_blank"
                 rel="noopener"
                 className="block w-full rounded-md bg-[#25D366] px-4 py-3 text-center text-sm font-bold text-white hover:bg-[#1ea957]"
               >
-                Message on WhatsApp
+                💬 Message on WhatsApp
+              </a>
+              <a
+                href={`${waBaseUrl}${waViewingMessage}`}
+                target="_blank"
+                rel="noopener"
+                className="mt-2 block w-full rounded-md bg-teal px-4 py-3 text-center text-sm font-bold text-white hover:bg-[#008C8A]"
+              >
+                📅 Book a viewing
               </a>
               <a
                 href={`tel:+${WA_NUMBER}`}
@@ -239,6 +274,26 @@ export default async function PropertyPublicPage({
           </aside>
         </div>
       </main>
+
+      {/* Sticky CTA bar — mobile only, always visible while scrolling */}
+      <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-2 gap-2 border-t border-gray-light bg-white p-3 shadow-2xl md:hidden">
+        <a
+          href={`${waBaseUrl}${waMessage}`}
+          target="_blank"
+          rel="noopener"
+          className="flex items-center justify-center gap-1.5 rounded-md bg-[#25D366] px-3 py-3 text-sm font-bold text-white"
+        >
+          💬 WhatsApp
+        </a>
+        <a
+          href={`${waBaseUrl}${waViewingMessage}`}
+          target="_blank"
+          rel="noopener"
+          className="flex items-center justify-center gap-1.5 rounded-md bg-teal px-3 py-3 text-sm font-bold text-white"
+        >
+          📅 Book viewing
+        </a>
+      </div>
     </div>
   );
 }
