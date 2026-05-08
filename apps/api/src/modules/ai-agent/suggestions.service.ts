@@ -4,7 +4,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 import { SchedulerService } from '../scheduler/scheduler.service';
 
-const SCHEDULER_PLACEHOLDER_RE = /\{\{\s*SCHEDULER_LINK\s*\}\}/g;
+// Accept the canonical `{{SCHEDULER_LINK}}` plus the variants Claude
+// occasionally hallucinates (<BOOKING_LINK>, [VIEWING_LINK], etc). All point
+// to the same idea — replace with the real one-time scheduler URL.
+const SCHEDULER_PLACEHOLDER_RE =
+  /\{\{\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*\}\}|<\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*>|\[\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*\]/gi;
+// Catches anything that still looks like an unresolved template token after
+// all known substitutions. Stripped before sending so leads never see them.
+const LEFTOVER_PLACEHOLDER_RE = /\{\{[^}]+\}\}|<[A-Z][A-Z0-9_]{2,}>|\[[A-Z][A-Z0-9_]{2,}\]/g;
 const SCHEDULER_INTENT_RE =
   /(?:te (?:paso|env[íi]o|enviar[ée]?)|i(?:'| wi)?ll send|i can send|let me send|here(?:'s| is)).{0,40}link.{0,40}(?:pick|choose|escojas|elegir|day|time|d[íi]a|hora|schedule|agend)/i;
 
@@ -199,6 +206,19 @@ export class SuggestionsService {
     // We accept either the explicit `{{SCHEDULER_LINK}}` placeholder or the
     // legacy phrasing patterns the AI was trained with.
     text = await this.injectSchedulerLink(text, suggestion.companyId, suggestion.leadId, propertyCode);
+
+    // Defensive: strip any remaining unresolved template-looking tokens.
+    // Claude occasionally hallucinates novel placeholder shapes; we never
+    // want a lead to receive literal `<X>`/`[Y]`/`{{Z}}` text.
+    if (LEFTOVER_PLACEHOLDER_RE.test(text)) {
+      LEFTOVER_PLACEHOLDER_RE.lastIndex = 0;
+      const stripped = text.match(LEFTOVER_PLACEHOLDER_RE) ?? [];
+      this.logger.warn(
+        `Stripping leftover placeholders (lead=${suggestion.leadId}): ${stripped.join(', ')}`,
+      );
+      text = text.replace(LEFTOVER_PLACEHOLDER_RE, '').replace(/\n[ \t]*\n[ \t]*\n+/g, '\n\n').trim();
+    }
+    LEFTOVER_PLACEHOLDER_RE.lastIndex = 0;
 
     const codeMatch = inlineCodeMatch ?? (propertyCode ? text.match(/\/p\/([A-Z0-9-]+)/i) : null);
     let result = null as Awaited<ReturnType<typeof this.waAdapter.adapter.sendText>> | null;
