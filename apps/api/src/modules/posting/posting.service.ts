@@ -1,12 +1,73 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { buildClickToChatUrl } from '@rentflow/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ContentService } from '../content/content.service';
 
 const READINESS_GATE = 60;
 
 @Injectable()
 export class PostingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly content: ContentService,
+  ) {}
+
+  /** List the company's automated channels (Telegram, IG, FB pages, etc). */
+  listAutomatedChannels(companyId: string) {
+    return this.content.listChannels(companyId);
+  }
+
+  /**
+   * Ask the AI for a draft caption tailored to the channel. Operator reviews
+   * and edits before calling autoPublish — this never publishes by itself.
+   */
+  async draftAutoCaption(
+    companyId: string,
+    packageId: string,
+    channelId: string,
+  ) {
+    const pkg = await this.findById(companyId, packageId);
+    return this.content.generateCaption({ propertyId: pkg.propertyId, channelId });
+  }
+
+  /**
+   * Publish a package to one of the company's automated channels. The
+   * resulting PostPlacement carries `automated=true` and a tracking slug so
+   * we can attribute clicks/leads back to this exact post.
+   */
+  async autoPublish(
+    companyId: string,
+    packageId: string,
+    userId: string,
+    args: { channelId: string; caption: string },
+  ) {
+    const pkg = await this.findById(companyId, packageId);
+    if (!args.caption?.trim()) {
+      throw new BadRequestException('caption is required');
+    }
+    const placement = await this.content.publish({
+      propertyId: pkg.propertyId,
+      channelId: args.channelId,
+      caption: args.caption.trim(),
+      publisherUserId: userId,
+    });
+    if (placement.companyId !== companyId) {
+      throw new BadRequestException('Cross-company publish blocked');
+    }
+    // Reflect on the package so the existing UI's "published" badge lights up.
+    if (pkg.status !== 'published') {
+      await this.prisma.postPackage.update({
+        where: { id: pkg.id },
+        data: {
+          status: 'published',
+          publishedById: userId,
+          publishedAt: new Date(),
+          publishedUrl: placement.externalUrl ?? undefined,
+        },
+      });
+    }
+    return placement;
+  }
 
   list(companyId: string) {
     return this.prisma.postPackage.findMany({

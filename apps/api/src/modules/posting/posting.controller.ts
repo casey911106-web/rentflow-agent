@@ -67,4 +67,30 @@ export class PostingController {
   ) {
     return this.posting.markPublished(user.companyId, id, user.sub, body);
   }
+
+  /** List automated owned-channels (Telegram, IG, FB pages) for the auto-publish picker. */
+  @Get('automated-channels/list')
+  automatedChannels(@CurrentUser() user: JwtPayload) {
+    return this.posting.listAutomatedChannels(user.companyId);
+  }
+
+  /** Generate an AI caption tailored to one automated channel. Returns text only — does not publish. */
+  @Post(':id/draft-auto-caption')
+  draftAutoCaption(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: { channelId: string },
+  ) {
+    return this.posting.draftAutoCaption(user.companyId, id, body.channelId);
+  }
+
+  /** Publish the package to an automated channel right now (Telegram for now). */
+  @Post(':id/auto-publish')
+  autoPublish(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: { channelId: string; caption: string },
+  ) {
+    return this.posting.autoPublish(user.companyId, id, user.sub, body);
+  }
 }
