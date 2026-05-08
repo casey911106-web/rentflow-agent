@@ -255,6 +255,8 @@ model Company {
   trackingLinks            TrackingLink[]
   viewings                 Viewing[]
   scheduleTokens           ViewingScheduleToken[]
+  costEntries              CostEntry[]
+  costSubscriptions        CostSubscription[]
   deals                    Deal[]
   notifications            Notification[]
   automationRules          AutomationRule[]
@@ -911,6 +913,51 @@ model PostPlacement {
 
   @@index([companyId, postPackageId])
   @@index([publisherUserId, publishedAt])
+}
+
+/// MVP cost-tracking ledger. Every paid action (Anthropic API call, Meta
+/// WhatsApp template message, fixed subscription pro-rata) gets one row so
+/// the admin can see total burn vs. revenue and spot anomalies fast.
+model CostEntry {
+  id             String            @id @default(uuid())
+  companyId      String
+  company        Company           @relation(fields: [companyId], references: [id])
+  kind           String            // anthropic_api | meta_whatsapp | fixed_subscription | fixed_one_off | vps | other
+  label          String            // human-readable: "Anthropic Sonnet 4.6 — 2026-05-08", "Virgin Mobile WA line — May 2026"
+  amountAed      Decimal           @db.Decimal(12, 2)
+  amountUsd      Decimal?          @db.Decimal(12, 2)  // when source quotes USD
+  subscriptionId String?
+  subscription   CostSubscription? @relation(fields: [subscriptionId], references: [id])
+  sourceType     String?           // 'suggestion' | 'whatsapp_message' | 'subscription' | 'manual'
+  metadata       Json?             // {tokens: {...}, model, count, ...}
+  incurredAt     DateTime          @default(now())
+  createdAt      DateTime          @default(now())
+
+  @@index([companyId, kind, incurredAt])
+  @@index([subscriptionId])
+}
+
+/// Recurring fixed costs (monthly SIM lines, yearly developer fees, VPS, etc.).
+/// A daily cron creates a pro-rata CostEntry from each active subscription so
+/// the dashboard shows accrued burn smoothly instead of big monthly steps.
+model CostSubscription {
+  id          String      @id @default(uuid())
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id])
+  label       String
+  kind        String      // 'fixed_subscription' typically; categorises in UI
+  amountAed   Decimal     @db.Decimal(12, 2)
+  cadence     String      // 'monthly' | 'yearly'
+  startsAt    DateTime
+  endsAt      DateTime?
+  active      Boolean     @default(true)
+  notes       String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  entries     CostEntry[]
+
+  @@index([companyId, active])
 }
 
 /// One-shot signed-style token issued when the AI agent or operator wants

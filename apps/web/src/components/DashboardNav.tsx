@@ -54,6 +54,7 @@ const NAV: NavItem[] = [
   { href: '/analytics',    label: 'Analytics',    icon: <BarChart3 size={18} />,      roles: ADMIN_OPS },
   { href: '/how-it-works', label: 'How it works', icon: <HelpCircle size={18} />,     roles: ALL_ROLES },
   { href: '/admin/users',  label: 'Users',        icon: <UserCog size={18} />,        roles: SUPER_ONLY },
+  { href: '/admin/costs',  label: 'Costs',        icon: <Wallet size={18} />,         roles: SUPER_ONLY },
   { href: '/settings',     label: 'Settings',     icon: <Settings size={18} />,       roles: ALL_ROLES },
 ];
 
