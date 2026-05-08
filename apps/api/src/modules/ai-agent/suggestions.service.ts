@@ -250,20 +250,14 @@ export class SuggestionsService {
       messageType = 'text';
     }
 
-    // If text/image fails because the 24h customer-service window expired,
-    // retry with the lead_followup_24h UTILITY template. Custom AI text is
-    // lost in this fallback — the template is fixed copy with name + area.
+    // 24h-window template fallback removed by business policy: no spend on
+    // re-engagement templates until revenue justifies it. The follow-up
+    // scheduler short-circuits before creating any proactive Suggestion
+    // once the lead's 24h window has passed; on rare in-window failures we
+    // surface the error to the operator instead of auto-paying for a
+    // template send.
     if (result.status === 'failed' && /131047|outside.*window|re.?engagement/i.test(result.error ?? '')) {
-      this.logger.warn(`24h window expired for ${conv.leadPhoneE164}; falling back to lead_followup_24h template`);
-      const firstName = suggestion.lead.fullName?.split(/\s+/)[0] || 'there';
-      const area = suggestion.lead.preferredArea || 'Dubai';
-      result = await this.waAdapter.adapter.sendTemplate({
-        to: conv.leadPhoneE164,
-        template: { name: 'lead_followup_24h', languageCode: 'en' },
-        variables: { '1': firstName, '2': area },
-        conversationId: conv.id,
-      });
-      messageType = 'template';
+      this.logger.warn(`Outside 24h window for ${conv.leadPhoneE164}; not falling back to template.`);
     }
 
     const message = await this.prisma.whatsAppMessage.create({

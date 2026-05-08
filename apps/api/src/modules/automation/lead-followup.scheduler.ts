@@ -5,15 +5,29 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OperatorNotifierService } from '../ai-agent/operator-notifier.service';
 import { SuggestionEngineService, type LeadState } from '../ai-agent/suggestion-engine.service';
 
-const FOLLOWUP_TIERS: Array<{ minHours: number; maxHours: number; label: string }> = [
-  { minHours: 3,  maxHours: 24,  label: '3h'  },
-  { minHours: 24, maxHours: 72,  label: '24h' },
-  { minHours: 72, maxHours: 168, label: '3d'  },
+/**
+ * Four follow-up tiers, all measured in minutes-since-OUR-last-reply.
+ * Each tier has a small window so the every-5-min cron always catches them.
+ * No tier ever fires once the lead's 24h Meta customer-service window has
+ * closed (>= 24h since their last inbound message) — we don't pay for
+ * UTILITY/MARKETING templates to push silent leads.
+ *
+ * Each tier produces a *pending* Suggestion that needs operator approval —
+ * proactive nudges never auto-approve, regardless of confidence.
+ */
+const FOLLOWUP_TIERS: Array<{
+  label: string;
+  minMin: number; // inclusive
+  maxMin: number; // exclusive
+  intent: string; // hint for Claude prompt
+}> = [
+  { label: '30min',  minMin: 30,   maxMin: 60,   intent: 'Soft, friendly nudge — they probably got distracted. One sentence.' },
+  { label: '6h',     minMin: 360,  maxMin: 390,  intent: 'Warmer follow-up — still helpful, ask if they have a question.' },
+  { label: '20h',    minMin: 1200, maxMin: 1230, intent: 'Closing tone — "anything else you wanted to know?". Polite final attempt.' },
+  { label: '23h30',  minMin: 1410, maxMin: 1440, intent: 'Last-call before the chat window closes for 24h — "we are here if you need anything else, just say hi".' },
 ];
 
 const TERMINAL_STATUSES = new Set<LeadStatus>(['won', 'lost', 'opted_out']);
-
-const FOLLOWUP_COOLDOWN_HOURS = 12;
 
 const ELIGIBLE_LEAD_STATUSES: LeadStatus[] = [
   'new',
@@ -22,20 +36,10 @@ const ELIGIBLE_LEAD_STATUSES: LeadStatus[] = [
   'qualified',
   'options_sent',
   'viewing_requested',
-  'cold',
 ];
 
-/**
- * Sweeps for silent leads and generates proactive follow-up Suggestions.
- *
- * Three tiers (3h / 24h / 3d). For each lead in the eligible window:
- *   - skip if already received a proactive suggestion in the last 12h
- *   - skip if conversation is human_takeover or closed
- *   - otherwise generate a new pending Suggestion via Claude
- *
- * The operator approves/edits/cancels via the dashboard or WhatsApp buttons —
- * same flow as inbound-driven suggestions.
- */
+const WINDOW_MAX_HOURS = 24;
+
 @Injectable()
 export class LeadFollowupScheduler {
   private readonly logger = new Logger(LeadFollowupScheduler.name);
@@ -47,8 +51,8 @@ export class LeadFollowupScheduler {
     private readonly notifier: OperatorNotifierService,
   ) {}
 
-  /** Runs every 30 minutes. Configurable via @nestjs/schedule. */
-  @Cron(CronExpression.EVERY_30_MINUTES, { name: 'lead-followup-sweep' })
+  /** Every 5 minutes — tier windows are 30 min wide so we never miss. */
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'lead-followup-sweep' })
   async sweep(): Promise<void> {
     if (this.running) {
       this.logger.warn('Skipping sweep — previous run still in progress.');
@@ -64,7 +68,6 @@ export class LeadFollowupScheduler {
     }
   }
 
-  /** Public hook so an admin endpoint can trigger the sweep on demand. */
   async runManually(): Promise<{ generated: number; skipped: number }> {
     return this.runSweep();
   }
@@ -73,39 +76,77 @@ export class LeadFollowupScheduler {
     let generated = 0;
     let skipped = 0;
 
-    for (const tier of FOLLOWUP_TIERS) {
-      const minAt = new Date(Date.now() - tier.maxHours * 60 * 60 * 1000);
-      const maxAt = new Date(Date.now() - tier.minHours * 60 * 60 * 1000);
-      const cooldownAt = new Date(Date.now() - FOLLOWUP_COOLDOWN_HOURS * 60 * 60 * 1000);
+    const candidates = await this.prisma.lead.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ELIGIBLE_LEAD_STATUSES },
+        whatsappConversation: { is: { mode: 'ai' } },
+      },
+      include: { whatsappConversation: true },
+      take: 200,
+    });
 
-      const candidates = await this.prisma.lead.findMany({
-        where: {
-          deletedAt: null,
-          status: { in: ELIGIBLE_LEAD_STATUSES },
-          lastInteractionAt: { gte: minAt, lte: maxAt },
-          OR: [
-            { lastFollowUpAt: null },
-            { lastFollowUpAt: { lt: cooldownAt } },
-          ],
-          whatsappConversation: { is: { mode: 'ai' } },
-        },
-        include: { whatsappConversation: true },
-        take: 25,
-      });
+    const now = Date.now();
+    const windowCutoff = new Date(now - WINDOW_MAX_HOURS * 60 * 60 * 1000);
 
-      for (const lead of candidates) {
-        if (!lead.whatsappConversation) {
-          skipped++;
-          continue;
-        }
-        if (TERMINAL_STATUSES.has(lead.status)) {
-          skipped++;
-          continue;
-        }
-        const ok = await this.generateForLead(lead, tier);
-        if (ok) generated++;
-        else skipped++;
+    for (const lead of candidates) {
+      if (!lead.whatsappConversation) {
+        skipped++;
+        continue;
       }
+      if (TERMINAL_STATUSES.has(lead.status)) {
+        skipped++;
+        continue;
+      }
+
+      // Lead's customer-service window must still be open.
+      const lastInbound = await this.prisma.whatsAppMessage.findFirst({
+        where: { conversationId: lead.whatsappConversation.id, direction: 'inbound' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      if (!lastInbound || lastInbound.createdAt < windowCutoff) {
+        // No inbound or > 24h since last one → window closed, do not follow up.
+        skipped++;
+        continue;
+      }
+
+      // Measure tier from OUR last reply.
+      const lastOutbound = await this.prisma.whatsAppMessage.findFirst({
+        where: { conversationId: lead.whatsappConversation.id, direction: 'outbound' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      if (!lastOutbound) {
+        // We haven't replied yet — the inbound flow handles first reply, not us.
+        skipped++;
+        continue;
+      }
+
+      const minutesSinceReply = Math.floor((now - lastOutbound.createdAt.getTime()) / 60_000);
+      const tier = FOLLOWUP_TIERS.find((t) => minutesSinceReply >= t.minMin && minutesSinceReply < t.maxMin);
+      if (!tier) {
+        skipped++;
+        continue;
+      }
+
+      // Already sent THIS tier since lastOutbound? Skip.
+      const dupe = await this.prisma.suggestion.findFirst({
+        where: {
+          leadId: lead.id,
+          createdAt: { gte: lastOutbound.createdAt },
+          reasoning: { contains: `[follow-up ${tier.label}]` },
+        },
+        select: { id: true },
+      });
+      if (dupe) {
+        skipped++;
+        continue;
+      }
+
+      const ok = await this.generateForLead(lead, tier);
+      if (ok) generated++;
+      else skipped++;
     }
 
     this.logger.log(`Lead follow-up sweep: generated=${generated} skipped=${skipped}`);
@@ -114,7 +155,7 @@ export class LeadFollowupScheduler {
 
   private async generateForLead(
     lead: { id: string; companyId: string; whatsappConversation: { id: string } | null },
-    tier: { minHours: number; maxHours: number; label: string },
+    tier: { label: string; minMin: number; maxMin: number; intent: string },
   ): Promise<boolean> {
     if (!lead.whatsappConversation) return false;
 
@@ -130,7 +171,7 @@ export class LeadFollowupScheduler {
       conversationId: lead.whatsappConversation.id,
       inboundMessageId: '',
       state,
-      proactive: { hoursOfSilence: tier.minHours },
+      proactive: { hoursOfSilence: tier.minMin / 60 },
     });
 
     if (!result.payload) {
@@ -146,7 +187,7 @@ export class LeadFollowupScheduler {
         inboundMessageId: null,
         state,
         suggestedReply: result.payload.suggestedReply,
-        reasoning: `[follow-up ${tier.label}] ${result.payload.reasoning}`,
+        reasoning: `[follow-up ${tier.label}] ${tier.intent} — ${result.payload.reasoning}`,
         confidence: result.payload.confidence,
         stateAfter: result.payload.stateAfter,
         escalate: result.payload.escalate,

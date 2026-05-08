@@ -19,15 +19,17 @@ export const BUILT_IN_DOCS: SystemDoc[] = [
     category: 'automation',
     name: 'Lead follow-up sweep',
     shortDescription:
-      'Generates proactive re-engagement Suggestions for silent leads at 3h / 24h / 3d after their last interaction.',
+      'Within the lead\'s open 24h WhatsApp window, generates 4 nudge Suggestions at 30 min, 6 h, 20 h and 23.5 h after our last reply. NEVER fires once the window is closed.',
     longDescription:
-      'Every 30 minutes, the system scans active leads (not won/lost/opted_out) whose last inbound message is between 3 hours and 7 days old. For each tier (3h, 24h, 3d) it asks Claude Sonnet 4.6 in *proactive mode* for a context-aware nudge — Claude knows the workflow state, what fields we already collected, and how long the lead has been silent. The result is a pending Suggestion that goes to the inbox and the operator phone with Approve / Edit / Cancel buttons.',
-    schedule: 'Every 30 minutes',
+      'Every 5 minutes the scheduler scans active leads (status not won/lost/opted_out) whose conversation is in AI mode. For each lead it loads the last inbound and last outbound timestamps. If more than 24 hours have passed since the lead\'s last inbound, the lead is skipped — the Meta customer-service window is closed and we do not pay for re-engagement templates. Otherwise it computes minutes-since-our-last-reply and matches one of four tiers:\n\n  • 30 min — soft nudge, one-line, "got distracted?" energy\n  • 6 h    — warm follow-up, ask if they have a question\n  • 20 h   — closing tone, "anything else you wanted to know?"\n  • 23.5 h — last call before the window closes for 24h, "we are here if you need anything"\n\nFor each tier window the system asks Claude in proactive mode for a context-aware nudge and creates a *pending* Suggestion. Proactive Suggestions NEVER auto-approve regardless of confidence — every single one needs operator approval (Approve / Edit / Cancel) via WhatsApp buttons or the dashboard. The same tier never fires twice for the same lastOutbound timestamp.',
+    schedule: 'Every 5 minutes',
     triggers: ['Cron'],
     effects: [
-      'Creates a Suggestion (status: pending) for each eligible lead',
-      'Stamps Lead.lastFollowUpAt to enforce the 12h cooldown',
-      'Pushes a WhatsApp interactive-button message to the operator phone if OPERATOR_WHATSAPP_E164 is set',
+      'Skips any lead whose lastInbound is older than 24 h (Meta window closed)',
+      'Creates one *pending* Suggestion per matched tier window — no auto-approve',
+      'Tier dedup: each tier (30 min / 6 h / 20 h / 23.5 h) only fires once between operator replies',
+      'Stamps Lead.lastFollowUpAt for analytics',
+      'Notifies the operator via WhatsApp interactive buttons (if OPERATOR_WHATSAPP_E164 is set and operator has an open 24 h window)',
     ],
     configurables: [
       { key: 'OPERATOR_WHATSAPP_E164', description: 'Operator phone E.164. When set, suggestions are pushed here with buttons.' },
@@ -35,7 +37,7 @@ export const BUILT_IN_DOCS: SystemDoc[] = [
       { key: 'AI_MODEL', default: 'claude-sonnet-4-6' },
     ],
     rationale:
-      'Silent leads forget about us within hours. A timely, soft nudge at 3h reactivates many. The 24h and 3d tiers catch the rest before they go cold permanently.',
+      'A lead replies, we reply, they go quiet. Within the 24 h Meta window every reply we send is free, so we have a tight budget of nudges to reactivate them: a soft 30-min poke, a warmer 6h check-in, a "anything else?" at 20h and a final "we\'re here" at 23.5h right before the window slams shut. Past 24h we stop entirely because pushing a UTILITY/MARKETING template costs real money — we will only enable that lane once the unit economics justify it.',
     observability: [
       'Logs lines like `Lead follow-up sweep: generated=N skipped=N`',
       'Token usage for each Suggestion is recorded in Suggestion.inputTokens / outputTokens / cacheReadTokens',
