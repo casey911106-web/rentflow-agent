@@ -505,6 +505,11 @@ export default function PostPackageDetailPage({ params }: { params: { id: string
             )}
           </div>
         </aside>
+
+        {/* AUTO-PUBLISH — full-width row below the 3-column grid */}
+        <section className="xl:col-span-12">
+          <AutoPublishPanel packageId={pkg.id} />
+        </section>
       </div>
     </div>
   );
@@ -548,6 +553,186 @@ function CaptionEditor({
         className="w-full resize-y rounded-md border border-gray-light bg-offwhite p-3 text-sm focus:border-teal focus:bg-white focus:outline-none"
       />
       <p className="mt-1 text-right text-xs text-gray-medium">{value.length} chars</p>
+    </div>
+  );
+}
+
+// =============================================================================
+// AUTO-PUBLISH — owned channels (Telegram now, IG/FB later)
+// =============================================================================
+
+interface AutomatedChannel {
+  id: string;
+  name: string;
+  platform: string;
+  externalId: string | null;
+}
+
+function AutoPublishPanel({ packageId }: { packageId: string }) {
+  const { data: channels, isLoading } = useQuery({
+    queryKey: ['automated-channels'],
+    queryFn: () => api<AutomatedChannel[]>('/post-packages/automated-channels/list'),
+  });
+
+  return (
+    <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold text-navy-deep">Auto-publish to owned channels</h2>
+        <p className="mt-1 text-xs text-gray-medium">
+          Push this listing instantly to a channel we own. Each post gets a unique tracking link
+          so you can see exactly which channel produces leads.
+        </p>
+      </div>
+
+      {isLoading && <p className="text-xs text-gray-medium">Loading channels…</p>}
+      {!isLoading && (!channels || channels.length === 0) && (
+        <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">
+          No automated channels registered yet. Set <code>TELEGRAM_BOT_TOKEN</code> in the API env
+          and seed the <code>PostChannel</code> rows from the VPS.
+        </p>
+      )}
+      {channels && channels.length > 0 && (
+        <div className="grid gap-3 md:grid-cols-2">
+          {channels.map((ch) => (
+            <AutoPublishCard key={ch.id} packageId={packageId} channel={ch} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface PublishResult {
+  id: string;
+  externalUrl: string | null;
+  trackingSlug: string | null;
+  channelName: string;
+  publishedAt: string;
+}
+
+function AutoPublishCard({
+  packageId,
+  channel,
+}: {
+  packageId: string;
+  channel: AutomatedChannel;
+}) {
+  const qc = useQueryClient();
+  const [caption, setCaption] = useState('');
+  const [published, setPublished] = useState<PublishResult | null>(null);
+
+  const draft = useMutation({
+    mutationFn: () =>
+      api<{ caption: string; modelId: string }>(
+        `/post-packages/${packageId}/draft-auto-caption`,
+        { method: 'POST', body: JSON.stringify({ channelId: channel.id }) },
+      ),
+    onSuccess: (res) => setCaption(res.caption),
+  });
+
+  const publish = useMutation({
+    mutationFn: () =>
+      api<PublishResult>(`/post-packages/${packageId}/auto-publish`, {
+        method: 'POST',
+        body: JSON.stringify({ channelId: channel.id, caption }),
+      }),
+    onSuccess: (res) => {
+      setPublished(res);
+      qc.invalidateQueries({ queryKey: ['post-package', packageId] });
+      qc.invalidateQueries({ queryKey: ['post-packages'] });
+    },
+  });
+
+  const platformBadge = (() => {
+    const map: Record<string, { label: string; cls: string }> = {
+      telegram: { label: 'Telegram', cls: 'bg-sky-100 text-sky-800' },
+      instagram: { label: 'Instagram', cls: 'bg-pink-100 text-pink-800' },
+      facebook: { label: 'Facebook', cls: 'bg-blue-100 text-blue-800' },
+    };
+    return map[channel.platform] ?? { label: channel.platform, cls: 'bg-gray-100 text-gray-800' };
+  })();
+
+  return (
+    <div className="rounded-md border border-gray-light bg-offwhite p-4">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-navy-deep">{channel.name}</p>
+          <span
+            className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${platformBadge.cls}`}
+          >
+            {platformBadge.label}
+          </span>
+        </div>
+      </div>
+
+      {published ? (
+        <div className="rounded-md bg-emerald-50 p-3 text-xs">
+          <p className="font-semibold text-emerald-800">✓ Published</p>
+          {published.externalUrl ? (
+            <a
+              href={published.externalUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 block font-semibold text-teal hover:underline"
+            >
+              Open live post ↗
+            </a>
+          ) : null}
+          {published.trackingSlug && (
+            <p className="mt-2 text-emerald-800">
+              Tracking slug: <code className="font-mono">{published.trackingSlug}</code>
+            </p>
+          )}
+          <button
+            onClick={() => {
+              setPublished(null);
+              setCaption('');
+            }}
+            className="mt-3 text-emerald-700 underline hover:text-emerald-900"
+          >
+            Post another
+          </button>
+        </div>
+      ) : (
+        <>
+          <textarea
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            placeholder="Caption — write here, or click 'Draft with AI' to generate"
+            rows={6}
+            className="w-full resize-y rounded-md border border-gray-light bg-white p-3 text-sm focus:border-teal focus:outline-none"
+          />
+          <p className="mt-1 text-right text-xs text-gray-medium">{caption.length} chars</p>
+
+          {draft.isError && (
+            <p className="mb-2 rounded-md bg-rose-50 p-2 text-xs text-rose-800">
+              {(draft.error as Error)?.message ?? 'Draft failed.'}
+            </p>
+          )}
+          {publish.isError && (
+            <p className="mb-2 rounded-md bg-rose-50 p-2 text-xs text-rose-800">
+              {(publish.error as Error)?.message ?? 'Publish failed.'}
+            </p>
+          )}
+
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => draft.mutate()}
+              disabled={draft.isPending}
+              className="flex-1 rounded-md border border-gray-light bg-white px-3 py-2 text-xs font-semibold text-gray-dark hover:bg-white disabled:opacity-50"
+            >
+              {draft.isPending ? 'Drafting…' : '✨ Draft with AI'}
+            </button>
+            <button
+              onClick={() => publish.mutate()}
+              disabled={publish.isPending || !caption.trim()}
+              className="flex-1 rounded-md bg-teal px-3 py-2 text-xs font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
+            >
+              {publish.isPending ? 'Publishing…' : 'Publish now'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
