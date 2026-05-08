@@ -139,13 +139,20 @@ export class PlacementsScheduler {
 
       const expiresAt = new Date(Date.now() + ASSIGNMENT_TTL_HOURS * 60 * 60 * 1000);
 
-      for (const pub of publishers) {
-        const active = activeMap.get(pub.id) ?? 0;
-        if (active >= MAX_ACTIVE_PER_PUBLISHER) continue;
+      // Fill every publisher up to MAX_ACTIVE_PER_PUBLISHER in a single tick.
+      // We iterate publishers round-robin style: outer loop = pass, inner
+      // loop = each publisher gets +1 task per pass until they hit the cap
+      // or run out of eligible packages.
+      let assignedThisPass: number;
+      do {
+        assignedThisPass = 0;
+        for (const pub of publishers) {
+          const active = activeMap.get(pub.id) ?? 0;
+          if (active >= MAX_ACTIVE_PER_PUBLISHER) continue;
 
-        const recent = recentMap.get(pub.id) ?? new Set<string>();
-        const target = candidatePackages.find((p) => !recent.has(p.id));
-        if (!target) continue;
+          const recent = recentMap.get(pub.id) ?? new Set<string>();
+          const target = candidatePackages.find((p) => !recent.has(p.id));
+          if (!target) continue;
 
         await this.prisma.postAssignment.create({
           data: {
@@ -187,17 +194,19 @@ export class PlacementsScheduler {
           }
         }
 
-        // Update tracking maps for next iteration in same tick
-        recent.add(target.id);
-        recentMap.set(pub.id, recent);
-        activeMap.set(pub.id, active + 1);
-        // Bump that package's placement count synthetically so the sort still
-        // spreads work if multiple publishers exist
-        target._count.placements++;
-        candidatePackages.sort((a, b) => a._count.placements - b._count.placements);
+          // Update tracking maps for next iteration in same tick
+          recent.add(target.id);
+          recentMap.set(pub.id, recent);
+          activeMap.set(pub.id, active + 1);
+          // Bump that package's placement count synthetically so the sort still
+          // spreads work if multiple publishers exist
+          target._count.placements++;
+          candidatePackages.sort((a, b) => a._count.placements - b._count.placements);
 
-        assigned++;
-      }
+          assigned++;
+          assignedThisPass++;
+        }
+      } while (assignedThisPass > 0);
     }
 
     return { assigned, notifiedViaWhatsApp };
