@@ -652,6 +652,14 @@ model Lead {
   postPackage            PostPackage?          @relation(fields: [postPackageId], references: [id])
   trackingLinkId         String?
   trackingLink           TrackingLink?         @relation(fields: [trackingLinkId], references: [id])
+  /// Set when the lead arrived through a placement tracking slug. Lets us
+  /// answer "which Telegram post produced this lead?" without going through
+  /// the package-level TrackingLink (which is shared across all placements).
+  attributionPlacementId String?
+  attributionPlacement   PostPlacement?        @relation("PostPlacementAttribution", fields: [attributionPlacementId], references: [id])
+  /// Free-form bucket label (e.g. "telegram_en", "telegram_es", "ig_reel") —
+  /// what we sort by in the analytics dashboard.
+  attributionSource      String?
   campaignId             String?
   campaign               Campaign?             @relation(fields: [campaignId], references: [id])
   sourceId               String?               @unique
@@ -692,6 +700,8 @@ model Lead {
   @@index([companyId, createdAt])
   @@index([propertyId])
   @@index([postPackageId])
+  @@index([attributionPlacementId])
+  @@index([companyId, attributionSource])
   @@index([phoneE164])
 }
 
@@ -837,6 +847,13 @@ model PostChannel {
   kind        ChannelKind     @default(unknown)
   notes       String?
   active      Boolean         @default(true)
+  /// External provider ID — e.g. Telegram chat_id, Facebook page_id, IG business_id.
+  /// Required when `automated = true`.
+  externalId  String?
+  /// True when we own the channel and the bot posts automatically. False for
+  /// external places where field agents post manually (the original Fast
+  /// Posting use case).
+  automated   Boolean         @default(false)
   createdAt   DateTime        @default(now())
 
   postPackages PostPackage[]
@@ -908,8 +925,25 @@ model PostPlacement {
   groupSize       Int?        // estimated audience reach (group members, page followers)
   notes           String?
 
+  /// True when posted by an automated adapter (bot) vs. a human field agent.
+  automated       Boolean     @default(false)
+  /// Caption/body that was actually published — kept here so we can audit
+  /// what the lead saw and re-post the exact text if something needs editing.
+  caption         String?
+  /// Provider-side post ID — e.g. Telegram message_id, IG media_id. Lets us
+  /// edit/delete the published post or fetch its metrics later.
+  externalPostId  String?
+  /// Short unique slug stamped onto the marketplace tracking link
+  /// (`/p/<code>?s=<slug>`). Each click increments `clicks` and the
+  /// resulting lead is attributed to this placement.
+  trackingSlug    String?     @unique
+  clicks          Int         @default(0)
+  lastClickAt     DateTime?
+
   publishedAt     DateTime    @default(now())
   removedAt       DateTime?
+
+  attributedLeads Lead[]      @relation("PostPlacementAttribution")
 
   @@index([companyId, postPackageId])
   @@index([publisherUserId, publishedAt])

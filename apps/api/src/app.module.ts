@@ -26,6 +26,7 @@ import { PublicModule } from './modules/public/public.module';
 import { PlacementsModule } from './modules/placements/placements.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { CostsModule } from './modules/costs/costs.module';
+import { ContentModule } from './modules/content/content.module';
 import { SystemDocsModule } from './modules/system-docs/system-docs.module';
 import { HealthModule } from './modules/health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -63,6 +64,7 @@ import { RolesGuard } from './modules/auth/roles.guard';
     PlacementsModule,
     SchedulerModule,
     CostsModule,
+    ContentModule,
     SystemDocsModule,
   ],
   providers: [

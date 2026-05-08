@@ -164,4 +164,26 @@ export class PublicController {
       throw new NotFoundException('File not found');
     }
   }
+
+  /**
+   * Beacon endpoint hit by the marketplace page when a visitor lands via a
+   * tracked link (`/p/<CODE>?s=<SLUG>`). Best-effort — we never throw, and
+   * an unknown slug returns 204 like a known one. Keeps probing cheap.
+   */
+  @Get('track/click/:slug')
+  async trackClick(@Param('slug') slug: string, @Res() res: Response) {
+    const safe = (slug ?? '').replace(/[^A-Z0-9]/gi, '').slice(0, 16);
+    if (safe) {
+      try {
+        await this.prisma.postPlacement.updateMany({
+          where: { trackingSlug: safe },
+          data: { clicks: { increment: 1 }, lastClickAt: new Date() },
+        });
+      } catch {
+        // intentionally swallow — public beacon
+      }
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(204).end();
+  }
 }
