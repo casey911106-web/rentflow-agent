@@ -197,10 +197,15 @@ export class SuggestionsService {
       throw new BadRequestException('Conversation is closed (lead opted out).');
     }
 
-    // Resolve property code from /p/<CODE> in text (preferred) or the lead's
-    // linked property as fallback. Used both for media attach and scheduler link.
+    // Resolve property code from /p/<CODE> in text (preferred), the lead's
+    // linked property next, or — for follow-ups where Claude doesn't repeat
+    // the listing — the most recent /p/<CODE> mentioned anywhere in the
+    // conversation history. Used both for media attach and scheduler link.
     const inlineCodeMatch = text.match(/\/p\/([A-Z0-9-]+)/i);
-    const propertyCode = inlineCodeMatch?.[1] ?? suggestion.lead.property?.code ?? null;
+    let propertyCode = inlineCodeMatch?.[1] ?? suggestion.lead.property?.code ?? null;
+    if (!propertyCode) {
+      propertyCode = await this.findRecentPropertyCodeInConversation(conv.id);
+    }
 
     // Substitute scheduler link placeholder with a real, single-use token URL.
     // We accept either the explicit `{{SCHEDULER_LINK}}` placeholder or the
@@ -338,6 +343,29 @@ export class SuggestionsService {
       leadId: suggestion.leadId,
       capturedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Walk back through recent conversation messages and return the most recent
+   * /p/<CODE> mention. Used when the current suggestion text doesn't repeat
+   * the property code (typical for follow-ups) and the lead has no
+   * `propertyId` FK yet.
+   */
+  private async findRecentPropertyCodeInConversation(
+    conversationId: string,
+  ): Promise<string | null> {
+    const messages = await this.prisma.whatsAppMessage.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { body: true },
+    });
+    for (const m of messages) {
+      if (!m.body) continue;
+      const match = m.body.match(/\/p\/([A-Z0-9-]+)/i);
+      if (match?.[1]) return match[1];
+    }
+    return null;
   }
 
   /**
