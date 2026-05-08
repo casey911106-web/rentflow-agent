@@ -5,13 +5,15 @@ import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 import { SchedulerService } from '../scheduler/scheduler.service';
 
 // Accept the canonical `{{SCHEDULER_LINK}}` plus the variants Claude
-// occasionally hallucinates (<BOOKING_LINK>, [VIEWING_LINK], etc). All point
-// to the same idea — replace with the real one-time scheduler URL.
+// occasionally hallucinates (<BOOKING_LINK>, [VIEWING_LINK], Spanish
+// phrases like [INSERTAR LINK DE AGENDAMIENTO], etc). All point to the
+// same idea — replace with the real one-time scheduler URL.
 const SCHEDULER_PLACEHOLDER_RE =
-  /\{\{\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*\}\}|<\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*>|\[\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*\]/gi;
+  /\{\{\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*\}\}|<\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*>|\[\s*(?:SCHEDULER|BOOKING|VIEWING|APPOINTMENT|CALENDAR|SCHEDULE)_LINK\s*\]|\[\s*(?:INSERTAR|INSERT|PEGAR|PASTE)[\sA-Z_-]*?(?:LINK|URL|AGENDA(?:MIENTO)?)[\sA-Z_-]*?\s*\]|\[\s*LINK\s+(?:DE\s+)?(?:AGENDA(?:MIENTO)?|SCHEDULE|BOOKING|VIEWING|RESERVA)\s*\]/gi;
 // Catches anything that still looks like an unresolved template token after
-// all known substitutions. Stripped before sending so leads never see them.
-const LEFTOVER_PLACEHOLDER_RE = /\{\{[^}]+\}\}|<[A-Z][A-Z0-9_]{2,}>|\[[A-Z][A-Z0-9_]{2,}\]/g;
+// all known substitutions. Spaces inside brackets allowed so Spanish
+// "[FRASE EN MAYÚSCULAS]" templates also get stripped on the safety pass.
+const LEFTOVER_PLACEHOLDER_RE = /\{\{[^}]+\}\}|<[A-Z][A-Z0-9_]{2,}>|\[[A-Z][A-Z0-9 _-]{2,}\]/g;
 const SCHEDULER_INTENT_RE =
   /(?:te (?:paso|env[íi]o|enviar[ée]?)|i(?:'| wi)?ll send|i can send|let me send|here(?:'s| is)).{0,40}link.{0,40}(?:pick|choose|escojas|elegir|day|time|d[íi]a|hora|schedule|agend)/i;
 
@@ -195,6 +197,21 @@ export class SuggestionsService {
     if (!conv) throw new BadRequestException('No WhatsApp conversation linked to this suggestion.');
     if (conv.mode === 'closed') {
       throw new BadRequestException('Conversation is closed (lead opted out).');
+    }
+
+    // Burst-send guard — prevents the same lead from receiving two outbound
+    // messages within ~30s when an operator approves multiple suggestions
+    // back-to-back, or a re-render fires the mutation twice.
+    const recent = await this.prisma.whatsAppMessage.findFirst({
+      where: { conversationId: conv.id, direction: 'outbound' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (recent && Date.now() - recent.createdAt.getTime() < 30_000) {
+      const seconds = Math.ceil((30_000 - (Date.now() - recent.createdAt.getTime())) / 1000);
+      throw new BadRequestException(
+        `Last reply was sent ${Math.round((Date.now() - recent.createdAt.getTime()) / 1000)}s ago — wait ${seconds}s to avoid spamming the lead.`,
+      );
     }
 
     // Resolve property code from /p/<CODE> in text (preferred), the lead's

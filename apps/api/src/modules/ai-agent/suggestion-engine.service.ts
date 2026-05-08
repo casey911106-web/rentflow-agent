@@ -88,7 +88,7 @@ export class SuggestionEngineService {
   async generate(input: GenerateSuggestionInput): Promise<SuggestionResult> {
     const start = Date.now();
 
-    const [lead, conversation, fewShot, properties] = await Promise.all([
+    const [lead, conversation, fewShot, properties, viewings] = await Promise.all([
       this.prisma.lead.findUnique({
         where: { id: input.leadId },
         include: { property: true },
@@ -119,6 +119,19 @@ export class SuggestionEngineService {
           rentalMinMonths: true,
         },
       }),
+      this.prisma.viewing.findMany({
+        where: {
+          leadId: input.leadId,
+          status: { in: ['requested', 'confirmed', 'assigned', 'rescheduled'] },
+        },
+        orderBy: { scheduledAt: 'asc' },
+        take: 5,
+        select: {
+          status: true,
+          scheduledAt: true,
+          property: { select: { code: true, name: true } },
+        },
+      }),
     ]);
 
     if (!lead || !conversation) {
@@ -126,7 +139,7 @@ export class SuggestionEngineService {
     }
 
     const systemBlocks = this.buildSystemBlocks(properties, fewShot);
-    const userPrompt = this.buildUserPrompt(lead, conversation, input.state, input.proactive);
+    const userPrompt = this.buildUserPrompt(lead, conversation, input.state, viewings, input.proactive);
 
     const provider = this.providerRef.provider;
     const modelId = process.env.AI_MODEL ?? 'claude-sonnet-4-6';
@@ -218,7 +231,16 @@ You are a sales assistant for a Dubai-based rental business. Your job is to sugg
 ## Hard rules — NEVER violate
 1. Never confirm a property is available unless the property's status field says "available".
 2. Never promise a price you weren't given explicitly in the property catalog.
-3. ALWAYS push the lead toward scheduling a viewing — that is the goal of every conversation. You don't pick the date yourself; the lead picks it via a self-service scheduler page. When you want to send the booking link, write the LITERAL placeholder \`{{SCHEDULER_LINK}}\` on its own line where the URL should appear — the system replaces it with a real one-time URL before the message is sent. Never invent a URL. CRITICAL: the placeholder MUST be EXACTLY \`{{SCHEDULER_LINK}}\` (double curly braces, that exact name). DO NOT write \`<BOOKING_LINK>\`, \`<SCHEDULER_LINK>\`, \`<LINK>\`, \`[LINK]\`, \`[BOOKING_LINK]\`, or any other variant — those are NOT replaced and the lead will receive them as literal text.
+3. ALWAYS push the lead toward scheduling a viewing — that is the goal of every conversation. You don't pick the date yourself; the lead picks it via a self-service scheduler page. When you want to send the booking link, write the LITERAL placeholder \`{{SCHEDULER_LINK}}\` on its own line where the URL should appear — the system replaces it with a real one-time URL before the message is sent. Never invent a URL.
+
+CRITICAL — the placeholder MUST be EXACTLY \`{{SCHEDULER_LINK}}\` (double curly braces, that exact ASCII name, no translation). The following are ALL WRONG and will reach the lead as literal broken text:
+- \`<BOOKING_LINK>\`, \`<SCHEDULER_LINK>\`, \`<LINK>\`, \`<URL>\`
+- \`[BOOKING_LINK]\`, \`[VIEWING_LINK]\`, \`[LINK]\`, \`[URL]\`
+- \`[INSERTAR LINK DE AGENDAMIENTO]\`, \`[INSERTAR EL LINK]\`, \`[PEGAR LINK]\`, \`[LINK DE AGENDAMIENTO]\`, \`[LINK DE RESERVA]\`
+- Any Spanish/French/Arabic phrase in brackets describing where the link goes
+- Any blank space, "...", or empty bracket where you expect the URL
+
+If you are writing in Spanish, the placeholder is STILL the English string \`{{SCHEDULER_LINK}}\`. Do not translate it. Do not localize it. Just write \`{{SCHEDULER_LINK}}\` exactly. The system replaces those exact characters and nothing else.
 4. Never share owner contact details.
 5. Never discuss properties not in the catalog.
 6. Escalate (escalate: true) if the lead is angry, complaining, talking about refunds, or asking about something outside rental discovery.
@@ -360,6 +382,7 @@ Do not include any text outside the JSON object.
     lead: { fullName: string | null; phoneE164: string; budgetAed: { toString(): string } | string | null; preferredArea: string | null; peopleCount: number | null; moveInDate: Date | null; rentalDurationMonths: number | null; property: { code: string; name: string; status: string; area: string | null; priceAed: { toString(): string } | string | null } | null },
     conversation: { messages: Array<{ direction: string; body: string | null; createdAt: Date }> },
     state: LeadState,
+    viewings: Array<{ status: string; scheduledAt: Date; property: { code: string; name: string } | null }>,
     proactive?: { hoursOfSilence: number },
   ): string {
     const profile = [
@@ -385,6 +408,16 @@ Do not include any text outside the JSON object.
       })
       .join('\n');
 
+    const viewingsBlock = viewings.length === 0
+      ? '(none — no viewings booked yet)'
+      : viewings
+          .map((v) => {
+            const when = v.scheduledAt.toISOString().slice(0, 16).replace('T', ' ');
+            const propLabel = v.property ? `${v.property.code} — ${v.property.name}` : '(unknown property)';
+            return `- [${v.status}] ${when} UTC · ${propLabel}`;
+          })
+          .join('\n');
+
     if (proactive) {
       const hours = proactive.hoursOfSilence;
       const silenceWindow =
@@ -393,6 +426,9 @@ Do not include any text outside the JSON object.
 
 ## Lead profile
 ${profile}
+
+## Confirmed/active viewings for this lead
+${viewingsBlock}
 
 ## Conversation so far (oldest first)
 ${lastMessages || '(no messages yet)'}
@@ -412,11 +448,20 @@ Respond with the JSON object only, no surrounding text. \`stateAfter\` should re
 ## Lead profile
 ${profile}
 
+## Confirmed/active viewings for this lead
+${viewingsBlock}
+
 ## Recent messages (oldest first)
 ${lastMessages}
 
 ## Task
-The lead may have sent several short [LEAD] lines in a row before pausing — treat every [LEAD] line that appears AFTER the most recent [US] line as a single combined question and answer ALL of them together in one reply. Don't ignore earlier [LEAD] lines just because a newer one arrived. Respond with the JSON object only, no surrounding text.`;
+The lead may have sent several short [LEAD] lines in a row before pausing — treat every [LEAD] line that appears AFTER the most recent [US] line as a single combined question and answer ALL of them together in one reply. Don't ignore earlier [LEAD] lines just because a newer one arrived.
+
+If a viewing already appears in "Confirmed/active viewings" above, DO NOT propose scheduling a new one for the same property. Reference the existing booking. If the lead asks about a DIFFERENT property than the one booked, treat it as a new property of interest — recommend it normally.
+
+If the lead is complaining about a problem ("link broken", "no funciona") and the latest [US] message DID send a working link or a viewing was confirmed AFTER the complaint, the complaint is stale — acknowledge resolution rather than escalating again.
+
+Respond with the JSON object only, no surrounding text.`;
   }
 
   private coerceToPayload(parsed: unknown, fallbackText: string): SuggestionPayload | null {
