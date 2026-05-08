@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { formatPriceLines } from '@rentflow/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 
@@ -164,15 +165,21 @@ export class SchedulerService {
     // Send WhatsApp confirmation (free text inside 24h window)
     await this.sendConfirmationWhatsApp(viewing);
 
-    // Notify field agent in-app
+    // Notify field agent in-app — include the 3 numbers so the agent has the
+    // right quote in front of them when they meet the lead.
     if (viewing.fieldAgentId && viewing.fieldAgent?.user) {
+      const agentPrices = formatPriceLines({
+        type: viewing.property.type,
+        priceAed: viewing.property.priceAed as number | null,
+        depositAed: viewing.property.depositAed as number | null,
+      });
       await this.prisma.notification.create({
         data: {
           companyId: token.companyId,
           userId: viewing.fieldAgent.user.id,
           kind: 'info',
-          title: `New viewing assigned — ${viewing.property.code}`,
-          body: `${viewing.lead.fullName ?? viewing.lead.phoneE164} on ${this.fmtDate(viewing.scheduledAt)}`,
+          title: `New viewing — ${viewing.property.code}`,
+          body: `${viewing.lead.fullName ?? viewing.lead.phoneE164} · ${this.fmtDate(viewing.scheduledAt)}\n\n${agentPrices}`,
           link: `/viewing/${viewing.id}`,
         },
       });
@@ -289,15 +296,21 @@ export class SchedulerService {
     id: string;
     companyId: string;
     scheduledAt: Date;
-    property: { code: string; name: string };
+    property: { code: string; name: string; type: string; priceAed: unknown; depositAed: unknown };
     lead: { phoneE164: string; fullName: string | null };
     fieldAgent: { user: { fullName: string } | null } | null;
   }) {
     const date = this.fmtDate(viewing.scheduledAt);
     const agentName = viewing.fieldAgent?.user?.fullName ?? null;
-    const text = agentName
-      ? `✓ Viewing confirmed for ${viewing.property.code} — ${viewing.property.name} on ${date}.\n\n${agentName} will meet you. They'll WhatsApp 30 min before with arrival details.`
-      : `✓ Viewing confirmed for ${viewing.property.code} — ${viewing.property.name} on ${date}.\n\nWe'll confirm the agent shortly.`;
+    const prices = formatPriceLines({
+      type: viewing.property.type,
+      priceAed: viewing.property.priceAed as number | null,
+      depositAed: viewing.property.depositAed as number | null,
+    });
+    const tail = agentName
+      ? `${agentName} will meet you. They'll WhatsApp 30 min before with arrival details.`
+      : `We'll confirm the agent shortly.`;
+    const text = `✓ Viewing confirmed for ${viewing.property.code} — ${viewing.property.name} on ${date}.\n\n${prices}\n\n${tail}`;
 
     try {
       const conv = await this.prisma.whatsAppConversation.findFirst({

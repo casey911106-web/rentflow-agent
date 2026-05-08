@@ -85,9 +85,11 @@ export default async function PropertyPublicPage({
   const messageBody = slug ? `${baseMsg} [ref:${slug.toUpperCase()}]` : baseMsg;
   const waMessage = encodeURIComponent(messageBody);
 
-  // Separate intent for "book a viewing" — the AI agent recognises this and
-  // jumps straight to the scheduler link.
-  const baseViewing = `Hi! I'd like to book a viewing for ${property.code} — ${property.name}. When can I see it?`;
+  // Separate intent for "book a viewing" — the [viewing] marker is the
+  // machine-readable signal so the AI agent (or a future fast-path) can
+  // recognise this came from the explicit booking CTA and skip qualifying
+  // questions entirely.
+  const baseViewing = `Hi! I'd like to book a viewing for ${property.code} — ${property.name}. When can I see it? [viewing]`;
   const viewingBody = slug ? `${baseViewing} [ref:${slug.toUpperCase()}]` : baseViewing;
   const waViewingMessage = encodeURIComponent(viewingBody);
   const waBaseUrl = `https://wa.me/${WA_NUMBER}?text=`;
