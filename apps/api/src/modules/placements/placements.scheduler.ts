@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PushService } from '../notifications/push.service';
 import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 
 const MAX_ACTIVE_PER_PUBLISHER = 3; // cap inflight tasks per person
@@ -32,6 +33,7 @@ export class PlacementsScheduler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly waAdapter: WhatsAppAdapterProvider,
+    private readonly push: PushService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR, { name: 'placements-round-robin' })
@@ -154,7 +156,7 @@ export class PlacementsScheduler {
           const target = candidatePackages.find((p) => !recent.has(p.id));
           if (!target) continue;
 
-        await this.prisma.postAssignment.create({
+        const assignment = await this.prisma.postAssignment.create({
           data: {
             companyId: company.id,
             postPackageId: target.id,
@@ -175,6 +177,12 @@ export class PlacementsScheduler {
             body: `Post ${propCode} ${propName} on as many groups as you can. You have 24h to log placements.`,
             link: `/posting/${target.id}`,
           },
+        });
+        // Push to mobile so the agent doesn't have to open the app to find out.
+        this.push.notifyPublishingTaskAssigned(pub.id, {
+          propertyCode: propCode,
+          propertyName: propName,
+          assignmentId: assignment.id,
         });
 
         // Optional WhatsApp ping — only if 24h window is open with this user.

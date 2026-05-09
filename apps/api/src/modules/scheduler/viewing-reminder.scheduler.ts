@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PushService } from '../notifications/push.service';
 import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 import { SchedulerService } from './scheduler.service';
 
@@ -33,6 +34,7 @@ export class ViewingReminderScheduler {
     private readonly prisma: PrismaService,
     private readonly waAdapter: WhatsAppAdapterProvider,
     private readonly scheduler: SchedulerService,
+    private readonly push: PushService,
   ) {}
 
   /** Daily 07:30 Asia/Dubai (= 03:30 UTC). */
@@ -139,7 +141,7 @@ export class ViewingReminderScheduler {
       include: {
         property: { select: { code: true, name: true, addressLine: true } },
         lead: { select: { id: true, phoneE164: true, fullName: true } },
-        fieldAgent: { include: { user: { select: { fullName: true } } } },
+        fieldAgent: { include: { user: { select: { id: true, fullName: true } } } },
       },
     });
 
@@ -193,6 +195,14 @@ export class ViewingReminderScheduler {
             body: 'Sent 30-min heads-up to lead',
           },
         });
+        // Push the agent too — reminder to be on site.
+        if (v.fieldAgent?.user) {
+          this.push.notifyViewingReminder(v.fieldAgent.user.id, {
+            propertyCode: v.property.code,
+            viewingId: v.id,
+            scheduledAt: v.scheduledAt,
+          });
+        }
         sent++;
       } catch (err) {
         this.logger.warn(`30-min reminder failed for viewing=${v.id}: ${(err as Error).message}`);

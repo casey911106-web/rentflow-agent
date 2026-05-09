@@ -9,9 +9,10 @@ import { InboundDebouncer } from './inbound-debouncer.service';
 import { OperatorInboundHandler } from './operator-inbound.handler';
 import { AIAgentModule } from '../ai-agent/ai-agent.module';
 import { AutomationModule } from '../automation/automation.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [forwardRef(() => AIAgentModule), forwardRef(() => AutomationModule)],
+  imports: [forwardRef(() => AIAgentModule), forwardRef(() => AutomationModule), NotificationsModule],
   controllers: [WhatsAppController, WebhookController],
   providers: [
     WhatsAppService,

@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { InboundDebouncer } from './inbound-debouncer.service';
 import { OperatorInboundHandler } from './operator-inbound.handler';
 import { OwnerReplyParser } from '../automation/owner-reply.parser';
+import { PushService } from '../notifications/push.service';
 
 @Injectable()
 export class InboundRouter {
@@ -16,6 +17,7 @@ export class InboundRouter {
     private readonly operatorHandler: OperatorInboundHandler,
     @Inject(forwardRef(() => OwnerReplyParser))
     private readonly ownerParser: OwnerReplyParser,
+    private readonly push: PushService,
   ) {}
 
   /**
@@ -119,9 +121,39 @@ export class InboundRouter {
         leadId,
         conversationId: conversation.id,
       });
+      // Push to ops/admins so they know a lead just replied even if they
+      // don't have the dashboard open. Fire-and-forget.
+      this.notifyLeadReplied(company.id, leadId, msg).catch(() => {});
     }
 
     return { leadId, conversationId: conversation.id, messageId: stored.id };
+  }
+
+  private async notifyLeadReplied(companyId: string, leadId: string, msg: InboundMessage) {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { fullName: true, phoneE164: true },
+    });
+    if (!lead) return;
+    const opsUsers = await this.prisma.user.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        status: 'active',
+        roles: { hasSome: ['ops_manager', 'super_admin'] },
+      },
+      select: { id: true },
+    });
+    if (opsUsers.length === 0) return;
+    await this.push.notifyLeadReplied(
+      opsUsers.map((u) => u.id),
+      {
+        leadId,
+        leadName: lead.fullName,
+        phoneE164: lead.phoneE164,
+        preview: msg.body ?? '(media)',
+      },
+    );
   }
 
   private async resolveCompany(businessNumberE164: string) {

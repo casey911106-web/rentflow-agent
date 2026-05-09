@@ -290,6 +290,11 @@ model User {
   roles       RoleName[] @default([ops_manager])
   status      UserStatus @default(active)
   lastLoginAt DateTime?
+  /// Expo push tokens for this user's devices. One user can be logged in
+  /// on multiple devices (phone + tablet) so we keep an array. Tokens get
+  /// pushed to /me/push-token on login + on app launch; stale ones drift
+  /// out via the periodic prune task.
+  expoPushTokens String[] @default([])
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   deletedAt   DateTime?

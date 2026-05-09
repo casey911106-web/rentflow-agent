@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { formatPriceLines } from '@rentflow/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PushService } from '../notifications/push.service';
 import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 
 const SLOT_MINUTES = 30;
@@ -31,6 +32,7 @@ export class SchedulerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly waAdapter: WhatsAppAdapterProvider,
+    private readonly push: PushService,
   ) {}
 
   /** Issue a fresh booking token (called from the AI agent flow). */
@@ -182,6 +184,14 @@ export class SchedulerService {
           body: `${viewing.lead.fullName ?? viewing.lead.phoneE164} · ${this.fmtDate(viewing.scheduledAt)}\n\n${agentPrices}`,
           link: `/viewing/${viewing.id}`,
         },
+      });
+      // Push to the agent's mobile so they see it without opening the app.
+      this.push.notifyViewingAssigned(viewing.fieldAgent.user.id, {
+        propertyCode: viewing.property.code,
+        propertyName: viewing.property.name,
+        viewingId: viewing.id,
+        scheduledAt: viewing.scheduledAt,
+        leadName: viewing.lead.fullName,
       });
     }
 
