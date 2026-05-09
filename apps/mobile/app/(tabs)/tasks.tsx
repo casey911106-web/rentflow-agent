@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import * as Clipboard from 'expo-clipboard';
 import { api } from '../../lib/api';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://rentflow-api.rentalho.com';
@@ -48,11 +49,20 @@ interface Assignment {
 
 interface Placement {
   id: string;
-  channelName: string;
+  channelName: string | null;
   channelKind: string | null;
   externalUrl: string | null;
   groupSize: number | null;
   publishedAt: string;
+  trackingSlug: string | null;
+  confirmedAt: string | null;
+}
+
+interface DraftResponse {
+  id: string;
+  trackingSlug: string;
+  trackingUrl: string | null;
+  postCode: string | null;
 }
 
 const CHANNEL_KINDS: Array<{ key: string; label: string }> = [
@@ -189,20 +199,18 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
   const caption = a.postPackage.whatsappCaption ?? a.postPackage.shortCaption ?? prop?.name ?? '';
   const trackingShort = a.postPackage.trackingLink?.shortUrl ?? '';
 
-  const [channelKind, setChannelKind] = useState('facebook_group');
-  const [channelName, setChannelName] = useState('');
-  const [externalUrl, setExternalUrl] = useState('');
-  const [groupSize, setGroupSize] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [placements, setPlacements] = useState<Placement[]>([]);
+  const [lastCopiedSlug, setLastCopiedSlug] = useState<string | null>(null);
 
   async function loadPlacements() {
     try {
       const data = await api<Placement[]>(`/post-packages/${a.postPackage.id}/placements/mine`);
       setPlacements(data);
     } catch {
-      // ignore — endpoint may 404 if missing, count from assignment instead
+      // ignore
     }
   }
 
@@ -210,39 +218,48 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
     loadPlacements();
   }, []);
 
-  const placementsCount = placements.length;
-  const canComplete = placementsCount >= MIN_PLACEMENTS;
+  const drafts = placements.filter((p) => p.confirmedAt === null);
+  const confirmed = placements.filter((p) => p.confirmedAt !== null);
+  const confirmedCount = confirmed.length;
+  const canComplete = confirmedCount >= MIN_PLACEMENTS;
 
   async function shareCaption() {
     const body = `${caption}\n\n${trackingShort}`;
     await Share.share({ message: body });
   }
 
-  async function logPlacement() {
-    if (!channelName.trim()) {
-      Alert.alert('Channel name required', 'Where did you post it? (e.g. "Dubai Marina FB Group")');
-      return;
-    }
-    setSubmitting(true);
+  /** One-tap: create a draft placement on the server, copy its unique
+   *  tracking URL to the clipboard. Agent now goes to the FB group, posts
+   *  with this URL, then comes back to confirm where they posted. */
+  async function generateAndCopyLink() {
+    setGenerating(true);
     try {
-      await api(`/post-packages/${a.postPackage.id}/placements`, {
-        method: 'POST',
-        body: JSON.stringify({
-          channelName: channelName.trim(),
-          channelKind,
-          externalUrl: externalUrl.trim() || undefined,
-          groupSize: groupSize ? Number(groupSize) : undefined,
-        }),
-      });
-      setChannelName('');
-      setExternalUrl('');
-      setGroupSize('');
+      const res = await api<DraftResponse>(
+        `/post-packages/${a.postPackage.id}/placements/draft`,
+        { method: 'POST' },
+      );
+      if (res.trackingUrl) {
+        await Clipboard.setStringAsync(res.trackingUrl);
+        setLastCopiedSlug(res.trackingSlug);
+        Alert.alert(
+          '✓ Link copied',
+          `Paste it in your next FB/WA group post. When you come back, tap the orange card to tell us which group.`,
+        );
+      }
       await loadPlacements();
     } catch (err) {
       Alert.alert('Failed', (err as Error).message);
     } finally {
-      setSubmitting(false);
+      setGenerating(false);
     }
+  }
+
+  async function copyDraftLink(slug: string | null) {
+    if (!slug || !trackingShort) return;
+    const url = `${trackingShort}?s=${slug}`;
+    await Clipboard.setStringAsync(url);
+    setLastCopiedSlug(slug);
+    Alert.alert('✓ Copied', 'Link copied to clipboard.');
   }
 
   async function markComplete() {
@@ -322,7 +339,7 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
         </Pressable>
         <Text style={{ fontSize: 16, fontWeight: '700', color: '#061D3F', flex: 1 }}>Publish task</Text>
         <Text style={{ color: canComplete ? '#16A34A' : '#94A3B8', fontWeight: '700', fontSize: 13 }}>
-          {placementsCount}/{MIN_PLACEMENTS}
+          {confirmedCount}/{MIN_PLACEMENTS}
         </Text>
       </View>
 
@@ -368,82 +385,100 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
         </View>
 
         <Text style={{ color: '#475569', fontSize: 12, textTransform: 'uppercase', marginTop: 24 }}>
-          Add a placement ({placementsCount}/{MIN_PLACEMENTS} required)
+          Post in groups ({confirmedCount}/{MIN_PLACEMENTS} confirmed)
         </Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-          {CHANNEL_KINDS.map((k) => {
-            const active = channelKind === k.key;
-            return (
-              <Pressable
-                key={k.key}
-                onPress={() => setChannelKind(k.key)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 16,
-                  backgroundColor: active ? '#00A7A5' : '#E2E8F0',
-                }}
-              >
-                <Text style={{ color: active ? 'white' : '#475569', fontSize: 12, fontWeight: '600' }}>{k.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <Field label="Channel name (e.g. 'Dubai Marina FB Group')">
-          <TextInput
-            value={channelName}
-            onChangeText={setChannelName}
-            style={inputStyle}
-            placeholder="Channel name"
-          />
-        </Field>
-
-        <Field label="Public URL of the post (recommended)">
-          <TextInput
-            value={externalUrl}
-            onChangeText={setExternalUrl}
-            style={inputStyle}
-            placeholder="https://facebook.com/..."
-            autoCapitalize="none"
-            keyboardType="url"
-          />
-        </Field>
-
-        <Field label="Group size (members) — for reach scoring">
-          <TextInput
-            value={groupSize}
-            onChangeText={setGroupSize}
-            style={inputStyle}
-            placeholder="e.g. 12000"
-            keyboardType="numeric"
-          />
-        </Field>
 
         <Pressable
-          onPress={logPlacement}
-          disabled={submitting}
+          onPress={generateAndCopyLink}
+          disabled={generating}
           style={{
-            marginTop: 16,
-            backgroundColor: submitting ? '#94A3B8' : '#0F766E',
-            padding: 14,
-            borderRadius: 10,
+            marginTop: 8,
+            backgroundColor: generating ? '#94A3B8' : '#00A7A5',
+            padding: 16,
+            borderRadius: 12,
             alignItems: 'center',
+            flexDirection: 'row',
+            justifyContent: 'center',
+            gap: 8,
           }}
         >
-          <Text style={{ color: 'white', fontWeight: '700' }}>
-            {submitting ? 'Logging…' : 'Log placement'}
+          <Ionicons name="copy-outline" color="white" size={20} />
+          <Text style={{ color: 'white', fontWeight: '700', fontSize: 15 }}>
+            {generating ? 'Generating link…' : 'Get & copy unique link'}
           </Text>
         </Pressable>
+        <Text style={{ color: '#64748B', fontSize: 11, marginTop: 6, textAlign: 'center' }}>
+          Tap → unique link is copied → paste it in your FB/WA group post → come back to confirm.
+        </Text>
 
-        {placements.length > 0 ? (
+        {drafts.length > 0 ? (
+          <View style={{ marginTop: 16 }}>
+            <Text style={{ color: '#B45309', fontSize: 12, textTransform: 'uppercase', marginBottom: 6, fontWeight: '700' }}>
+              ⏳ Pending — tap to confirm where you posted
+            </Text>
+            {drafts.map((p) => (
+              <Pressable
+                key={p.id}
+                onPress={() => setConfirmingId(p.id)}
+                style={{
+                  backgroundColor: '#FFFBEB',
+                  borderWidth: 1,
+                  borderColor: '#F59E0B',
+                  padding: 12,
+                  borderRadius: 10,
+                  marginBottom: 8,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '700', color: '#92400E', fontSize: 13 }}>
+                    Link [{p.trackingSlug}] {lastCopiedSlug === p.trackingSlug ? '· just copied' : ''}
+                  </Text>
+                  <Text style={{ color: '#B45309', fontSize: 11, marginTop: 2 }}>
+                    Tap to add the group name
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    copyDraftLink(p.trackingSlug);
+                  }}
+                  hitSlop={8}
+                  style={{
+                    backgroundColor: '#F59E0B',
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 6,
+                  }}
+                >
+                  <Text style={{ color: 'white', fontSize: 11, fontWeight: '700' }}>Copy again</Text>
+                </Pressable>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        {confirmed.length > 0 ? (
           <View style={{ marginTop: 20 }}>
             <Text style={{ color: '#475569', fontSize: 12, textTransform: 'uppercase', marginBottom: 6 }}>
-              Already logged
+              ✓ Confirmed posts
             </Text>
-            {placements.map((p) => (
+            {confirmed.map((p) => (
               <View key={p.id} style={{ backgroundColor: 'white', padding: 10, borderRadius: 8, marginBottom: 6 }}>
-                <Text style={{ fontWeight: '600', color: '#061D3F' }}>{p.channelName}</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontWeight: '600', color: '#061D3F', flex: 1 }}>{p.channelName}</Text>
+                  {p.trackingSlug ? (
+                    <Pressable
+                      onPress={() => copyDraftLink(p.trackingSlug)}
+                      hitSlop={8}
+                      style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#E0F2F1', borderRadius: 4 }}
+                    >
+                      <Text style={{ color: '#0F766E', fontSize: 10, fontWeight: '700' }}>COPY LINK</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
                 {p.externalUrl ? <Text style={{ color: '#00A7A5', fontSize: 11 }}>{p.externalUrl}</Text> : null}
                 <Text style={{ color: '#64748B', fontSize: 11 }}>
                   {p.channelKind ?? '—'}{p.groupSize ? ` · ${p.groupSize.toLocaleString()} members` : ''}
@@ -465,11 +500,164 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
           }}
         >
           <Text style={{ color: 'white', fontWeight: '700', fontSize: 15 }}>
-            {completing ? 'Closing task…' : canComplete ? '✓ Mark task complete' : `Need ${MIN_PLACEMENTS - placementsCount} more placement(s)`}
+            {completing ? 'Closing task…' : canComplete ? '✓ Mark task complete' : `Need ${MIN_PLACEMENTS - confirmedCount} more placement(s)`}
           </Text>
         </Pressable>
       </ScrollView>
+
+      {confirmingId ? (
+        <ConfirmDraftModal
+          placementId={confirmingId}
+          onClose={() => setConfirmingId(null)}
+          onConfirmed={async () => {
+            setConfirmingId(null);
+            await loadPlacements();
+          }}
+        />
+      ) : null}
     </SafeAreaView>
+  );
+}
+
+function ConfirmDraftModal({
+  placementId,
+  onClose,
+  onConfirmed,
+}: {
+  placementId: string;
+  onClose: () => void;
+  onConfirmed: () => void;
+}) {
+  const [channelKind, setChannelKind] = useState('facebook_group');
+  const [channelName, setChannelName] = useState('');
+  const [externalUrl, setExternalUrl] = useState('');
+  const [groupSize, setGroupSize] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    if (!channelName.trim()) {
+      Alert.alert('Group name required', 'Where did you post this link? (e.g. "Dubai Marina FB Group")');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api(`/placements/${placementId}/confirm`, {
+        method: 'POST',
+        body: JSON.stringify({
+          channelName: channelName.trim(),
+          channelKind,
+          externalUrl: externalUrl.trim() || undefined,
+          groupSize: groupSize ? Number(groupSize) : undefined,
+        }),
+      });
+      onConfirmed();
+    } catch (err) {
+      Alert.alert('Failed', (err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }} edges={['top', 'bottom']}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingVertical: 12,
+            paddingHorizontal: 16,
+            borderBottomWidth: 1,
+            borderColor: '#E2E8F0',
+            backgroundColor: 'white',
+          }}
+        >
+          <Pressable onPress={onClose} hitSlop={12} style={{ marginRight: 12 }}>
+            <Ionicons name="close" color="#475569" size={28} />
+          </Pressable>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#061D3F', flex: 1 }}>
+            Confirm where you posted
+          </Text>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 64 }}>
+          <Text style={{ color: '#64748B', fontSize: 13, marginBottom: 12 }}>
+            Tell us which group received this link. Only the group name is required.
+          </Text>
+
+          <Text style={{ color: '#475569', fontSize: 12, textTransform: 'uppercase', marginBottom: 6 }}>
+            Channel type
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {CHANNEL_KINDS.map((k) => {
+              const active = channelKind === k.key;
+              return (
+                <Pressable
+                  key={k.key}
+                  onPress={() => setChannelKind(k.key)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 16,
+                    backgroundColor: active ? '#00A7A5' : '#E2E8F0',
+                  }}
+                >
+                  <Text style={{ color: active ? 'white' : '#475569', fontSize: 12, fontWeight: '600' }}>
+                    {k.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Field label="Group name (required)">
+            <TextInput
+              value={channelName}
+              onChangeText={setChannelName}
+              style={inputStyle}
+              placeholder="e.g. Dubai Marina FB Group"
+              autoFocus
+            />
+          </Field>
+
+          <Field label="Public URL of the post (optional)">
+            <TextInput
+              value={externalUrl}
+              onChangeText={setExternalUrl}
+              style={inputStyle}
+              placeholder="https://facebook.com/..."
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+          </Field>
+
+          <Field label="Group size — for reach scoring (optional)">
+            <TextInput
+              value={groupSize}
+              onChangeText={setGroupSize}
+              style={inputStyle}
+              placeholder="e.g. 12000"
+              keyboardType="numeric"
+            />
+          </Field>
+
+          <Pressable
+            onPress={submit}
+            disabled={submitting}
+            style={{
+              marginTop: 24,
+              backgroundColor: submitting ? '#94A3B8' : '#16A34A',
+              padding: 16,
+              borderRadius: 10,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: 'white', fontWeight: '700', fontSize: 15 }}>
+              {submitting ? 'Confirming…' : '✓ Confirm post'}
+            </Text>
+          </Pressable>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
