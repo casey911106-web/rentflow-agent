@@ -18,7 +18,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
-import * as Clipboard from 'expo-clipboard';
 import { api } from '../../lib/api';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://rentflow-api.rentalho.com';
@@ -239,10 +238,15 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
         { method: 'POST' },
       );
       if (res.trackingUrl) {
-        await Clipboard.setStringAsync(res.trackingUrl);
         setLastCopiedSlug(res.trackingSlug);
+        // Share sheet — let the agent send the link straight to WhatsApp
+        // group / FB Messenger / Notes / Copy. Native modules are off the
+        // table to keep the build OTA-able, so this beats Clipboard for now.
+        await Share.share({
+          message: res.trackingUrl,
+        });
         Alert.alert(
-          '✓ Link copied',
+          '🎯 Link ready',
           `Paste it in your next FB/WA group post. When you come back, tap the orange card to tell us which group.`,
         );
       }
@@ -257,9 +261,8 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
   async function copyDraftLink(slug: string | null) {
     if (!slug || !trackingShort) return;
     const url = `${trackingShort}?s=${slug}`;
-    await Clipboard.setStringAsync(url);
     setLastCopiedSlug(slug);
-    Alert.alert('✓ Copied', 'Link copied to clipboard.');
+    await Share.share({ message: url });
   }
 
   async function markComplete() {
@@ -402,13 +405,13 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
             gap: 8,
           }}
         >
-          <Ionicons name="copy-outline" color="white" size={20} />
+          <Ionicons name="share-outline" color="white" size={20} />
           <Text style={{ color: 'white', fontWeight: '700', fontSize: 15 }}>
-            {generating ? 'Generating link…' : 'Get & copy unique link'}
+            {generating ? 'Generating link…' : 'Get & share unique link'}
           </Text>
         </Pressable>
         <Text style={{ color: '#64748B', fontSize: 11, marginTop: 6, textAlign: 'center' }}>
-          Tap → unique link is copied → paste it in your FB/WA group post → come back to confirm.
+          Tap → share sheet opens → send straight to your FB/WA group → come back to confirm.
         </Text>
 
         {drafts.length > 0 ? (
@@ -453,7 +456,7 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
                     borderRadius: 6,
                   }}
                 >
-                  <Text style={{ color: 'white', fontSize: 11, fontWeight: '700' }}>Copy again</Text>
+                  <Text style={{ color: 'white', fontSize: 11, fontWeight: '700' }}>Share again</Text>
                 </Pressable>
               </Pressable>
             ))}
@@ -475,7 +478,7 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
                       hitSlop={8}
                       style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#E0F2F1', borderRadius: 4 }}
                     >
-                      <Text style={{ color: '#0F766E', fontSize: 10, fontWeight: '700' }}>COPY LINK</Text>
+                      <Text style={{ color: '#0F766E', fontSize: 10, fontWeight: '700' }}>SHARE LINK</Text>
                     </Pressable>
                   ) : null}
                 </View>
