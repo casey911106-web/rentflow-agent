@@ -23,8 +23,15 @@ interface IngestionSession {
   buffer: BufferedMessage[];
   /** Pre-downloaded FileUploads awaiting attachment to the new Property. */
   pendingFileIds: { fileUploadId: string; kind: 'image' | 'video' }[];
+  /** Set when the partner runs `/<AgentName>` mid-session. Wins over the
+   *  AI-extracted agentName so the slash command is the source of truth. */
+  assignedFieldAgentId?: string;
+  assignedFieldAgentName?: string;
   timeoutHandle?: NodeJS.Timeout;
 }
+
+/** Reserved slash-tokens that aren't agent assignments. */
+const RESERVED_COMMANDS = new Set(['/property', '/done', '/cancel', '/help']);
 
 interface ParsedSubmission {
   priceAed?: number;
@@ -113,7 +120,12 @@ export class IngestionService {
       await this.reply(
         args.companyId,
         args.partnerPhoneE164,
-        '📥 Te escucho — manda fotos, descripción y precio. Di `/done` cuando termines o esperaré 5 min.',
+        [
+          '📥 Te escucho.',
+          '• Manda fotos, descripción y precio.',
+          '• Asigna agente con `/<NombreDelAgente>` (ej: `/Hamza`).',
+          '• Di `/done` cuando termines o esperaré 5 min.',
+        ].join('\n'),
         args.conversationId,
       );
       return true;
@@ -123,6 +135,17 @@ export class IngestionService {
 
     if (isDone) {
       await this.finalize(args.companyId, args.conversationId, args.partnerPhoneE164, 'done');
+      return true;
+    }
+
+    // Slash-command for agent assignment: `/Hamza`, `/Juan Mensah`, etc.
+    // Anything starting with `/` that's not a reserved keyword is treated
+    // as an agent-name claim. We try to fuzzy-match it against active
+    // staff and update the session.
+    const slashCmd = text.match(/^\/([^\s]+(?:\s+[^\s]+){0,3})$/i);
+    if (slashCmd && !RESERVED_COMMANDS.has(`/${slashCmd[1]!.toLowerCase().split(/\s+/)[0]}`)) {
+      const claimedName = slashCmd[1]!.trim();
+      await this.handleAgentClaim(args.companyId, session, claimedName, args.partnerPhoneE164);
       return true;
     }
 
@@ -143,6 +166,54 @@ export class IngestionService {
 
   private sessionKey(companyId: string, conversationId: string) {
     return `${companyId}:${conversationId}`;
+  }
+
+  /**
+   * Resolve the slash-name against active staff (field_agent / ops_manager
+   * / super_admin) and stamp the session if a match is found.
+   * Replies inline with confirmation or a 'not found' message.
+   */
+  private async handleAgentClaim(
+    companyId: string,
+    session: IngestionSession,
+    claimedName: string,
+    partnerPhoneE164: string,
+  ): Promise<void> {
+    const candidates = await this.prisma.user.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        status: 'active',
+        roles: { hasSome: ['field_agent', 'ops_manager', 'super_admin'] },
+      },
+      select: { id: true, fullName: true },
+    });
+    const target = claimedName.toLowerCase();
+    const exact = candidates.find((c) => c.fullName?.toLowerCase() === target);
+    const partial = !exact
+      ? candidates.find((c) => c.fullName?.toLowerCase().includes(target))
+      : null;
+    const match = exact ?? partial ?? null;
+
+    if (!match) {
+      const names = candidates.map((c) => c.fullName).filter(Boolean).slice(0, 6).join(', ');
+      await this.reply(
+        companyId,
+        partnerPhoneE164,
+        `❌ No encontré agente "${claimedName}".\nAgentes activos: ${names || '(ninguno)'}\nVuelve a escribirlo así: /<NombreCompleto>`,
+        session.conversationId,
+      );
+      return;
+    }
+
+    session.assignedFieldAgentId = match.id;
+    session.assignedFieldAgentName = match.fullName ?? claimedName;
+    await this.reply(
+      companyId,
+      partnerPhoneE164,
+      `✓ Agente asignado: ${match.fullName}\nSigue mandando datos o di /done para crear la propiedad.`,
+      session.conversationId,
+    );
   }
 
   private async captureMediaIfAny(
@@ -233,9 +304,13 @@ export class IngestionService {
       return;
     }
 
-    // Resolve assigned field agent by fuzzy name match.
-    let assignedFieldAgentId: string | null = null;
-    if (parsed.agentName) {
+    // Field-agent assignment priority:
+    //  1. Slash command in this session (/Hamza) — strongest signal,
+    //     already validated when typed.
+    //  2. AI-extracted "Agente: X" from the buffered text — fallback for
+    //     when the partner forgot the slash command.
+    let assignedFieldAgentId: string | null = session.assignedFieldAgentId ?? null;
+    if (!assignedFieldAgentId && parsed.agentName) {
       const candidates = await this.prisma.user.findMany({
         where: {
           companyId,
