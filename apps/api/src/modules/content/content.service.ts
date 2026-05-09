@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiProviderRef } from '../ai-agent/ai-provider.ref';
+import { MetaGraphAdapter } from './meta-graph.adapter';
 import { TelegramAdapter } from './telegram.adapter';
 
 const SLUG_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -41,6 +42,7 @@ export class ContentService {
     private readonly prisma: PrismaService,
     private readonly aiRef: AiProviderRef,
     private readonly telegram: TelegramAdapter,
+    private readonly meta: MetaGraphAdapter,
   ) {}
 
   async listChannels(companyId: string) {
@@ -137,9 +139,14 @@ export class ContentService {
     const captionWithLink = this.appendTrackingLink(input.caption, trackingUrl, channel.platform);
 
     // Pick adapter by platform.
-    let result: { messageId: number; externalUrl: string | null };
+    let result: { externalPostId: string; externalUrl: string | null };
     if (channel.platform === 'telegram') {
-      result = await this.publishTelegram(channel, property, captionWithLink);
+      const tg = await this.publishTelegram(channel, property, captionWithLink);
+      result = { externalPostId: String(tg.messageId), externalUrl: tg.externalUrl };
+    } else if (channel.platform === 'facebook') {
+      result = await this.publishFacebookPage(channel, property, captionWithLink);
+    } else if (channel.platform === 'instagram') {
+      result = await this.publishInstagram(channel, property, captionWithLink);
     } else {
       throw new BadRequestException(`Platform ${channel.platform} not yet supported`);
     }
@@ -152,7 +159,7 @@ export class ContentService {
         channelName: channel.name,
         channelKind: channel.platform,
         externalUrl: result.externalUrl,
-        externalPostId: String(result.messageId),
+        externalPostId: result.externalPostId,
         caption: captionWithLink,
         trackingSlug,
         automated: true,
@@ -217,6 +224,64 @@ export class ContentService {
       text: truncate(caption, TG_TEXT_MAX),
       channelUsername,
       disableWebPagePreview: false,
+    });
+  }
+
+  private async publishFacebookPage(
+    channel: { externalId: string | null; name: string },
+    property: {
+      code: string;
+      media: { file: { id: string; mimeType: string } }[];
+    },
+    caption: string,
+  ) {
+    const pageId = channel.externalId!;
+    const photos = property.media.filter((m) => m.file.mimeType.startsWith('image/'));
+    const photoUrls = photos.map((m) => `${PUBLIC_API_BASE}/public/files/${m.file.id}`);
+    if (photoUrls.length >= 2) {
+      return this.meta.postFacebookPageMultiPhoto({
+        pageId,
+        photoUrls,
+        caption,
+      });
+    }
+    if (photoUrls.length === 1) {
+      return this.meta.postFacebookPagePhoto({
+        pageId,
+        photoUrl: photoUrls[0]!,
+        caption,
+      });
+    }
+    return this.meta.postFacebookPageText({ pageId, text: caption });
+  }
+
+  private async publishInstagram(
+    channel: { externalId: string | null; name: string },
+    property: {
+      code: string;
+      media: { file: { id: string; mimeType: string } }[];
+    },
+    caption: string,
+  ) {
+    const igUserId = channel.externalId!;
+    const photos = property.media.filter((m) => m.file.mimeType.startsWith('image/'));
+    const photoUrls = photos.map((m) => `${PUBLIC_API_BASE}/public/files/${m.file.id}`);
+    if (photoUrls.length === 0) {
+      throw new Error(
+        `Instagram requires at least one image for property ${property.code} — none on file`,
+      );
+    }
+    if (photoUrls.length === 1) {
+      return this.meta.postInstagramSingle({
+        igUserId,
+        photoUrl: photoUrls[0]!,
+        caption,
+      });
+    }
+    return this.meta.postInstagramCarousel({
+      igUserId,
+      photoUrls,
+      caption,
     });
   }
 
