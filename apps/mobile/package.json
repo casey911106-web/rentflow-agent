@@ -10,7 +10,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eas-build-post-install": "cd ../.. && pnpm --filter @rentflow/shared build"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
