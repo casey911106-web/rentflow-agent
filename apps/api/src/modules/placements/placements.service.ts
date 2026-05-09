@@ -91,26 +91,20 @@ export class PlacementsService {
       },
     });
 
-    // Bump the package status to 'published' on the FIRST placement so the
-    // dashboard reflects reality. Field agents publish then log placements;
-    // there's no separate ops approval step for them. If the package was
-    // already published or paused/archived, leave it alone.
+    // Bump the package status to 'published' as soon as ANY placement exists.
+    // Idempotent: leave alone if already published/paused/archived. The
+    // previous version only fired when count===1; any race or out-of-order
+    // insert would leave the package stuck in 'approved'.
     if (pkg.status !== 'published' && pkg.status !== 'paused' && pkg.status !== 'archived') {
-      const existingCount = await this.prisma.postPlacement.count({
-        where: { postPackageId, removedAt: null },
+      await this.prisma.postPackage.update({
+        where: { id: postPackageId },
+        data: {
+          status: 'published',
+          publishedById: publisherUserId,
+          publishedAt: new Date(),
+          channelName: pkg.channelName ?? dto.channelName.trim(),
+        },
       });
-      if (existingCount === 1) {
-        // we are the first placement (count includes the row we just made)
-        await this.prisma.postPackage.update({
-          where: { id: postPackageId },
-          data: {
-            status: 'published',
-            publishedById: publisherUserId,
-            publishedAt: new Date(),
-            channelName: pkg.channelName ?? dto.channelName.trim(),
-          },
-        });
-      }
     }
 
     // Don't auto-fulfill the assignment here — the publisher must reach the
@@ -161,9 +155,39 @@ export class PlacementsService {
       );
     }
 
-    return this.prisma.postAssignment.update({
-      where: { id: assignmentId },
-      data: { status: 'fulfilled', fulfilledAt: new Date() },
+    return this.prisma.$transaction(async (tx) => {
+      const fulfilled = await tx.postAssignment.update({
+        where: { id: assignmentId },
+        data: { status: 'fulfilled', fulfilledAt: new Date() },
+      });
+
+      // Defense in depth: when a field agent marks a task complete, the
+      // package is by definition published — bump the status if some prior
+      // placement-create race left it stuck in approved/pending_approval.
+      const pkg = await tx.postPackage.findUnique({
+        where: { id: assignment.postPackageId },
+        select: { status: true, channelName: true },
+      });
+      if (pkg && pkg.status !== 'published' && pkg.status !== 'paused' && pkg.status !== 'archived') {
+        // Find one placement to copy the channelName from if the package
+        // doesn't have one yet (kept as the "primary" channel for display).
+        const firstPlacement = await tx.postPlacement.findFirst({
+          where: { postPackageId: assignment.postPackageId, removedAt: null },
+          orderBy: { publishedAt: 'asc' },
+          select: { channelName: true },
+        });
+        await tx.postPackage.update({
+          where: { id: assignment.postPackageId },
+          data: {
+            status: 'published',
+            publishedById: userId,
+            publishedAt: new Date(),
+            channelName: pkg.channelName ?? firstPlacement?.channelName ?? null,
+          },
+        });
+      }
+
+      return fulfilled;
     });
   }
 
