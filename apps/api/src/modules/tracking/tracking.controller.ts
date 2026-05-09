@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Public } from '../auth/public.decorator';
@@ -9,13 +9,18 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class TrackingController {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** GET /t/:postCode → records the click and 302-redirects to the public
-   *  marketplace property page so the lead sees the full gallery + details
-   *  before deciding to WhatsApp. The marketplace page has a prominent
-   *  'Message on WhatsApp' button. */
+  /** GET /t/:postCode[?s=<placementSlug>] → records the click and
+   *  302-redirects to the public marketplace property page. When `?s=` is
+   *  present, it forwards to `/p/<code>?via=<postCode>&s=<slug>` so the
+   *  per-placement beacon also fires and the click is attributed to the
+   *  specific channel/group the field agent posted in. */
   @Public()
   @Get(':postCode')
-  async redirect(@Param('postCode') postCode: string, @Res() res: Response) {
+  async redirect(
+    @Param('postCode') postCode: string,
+    @Query('s') rawSlug: string | undefined,
+    @Res() res: Response,
+  ) {
     const link = await this.prisma.trackingLink.findUnique({
       where: { postCode },
       include: { postPackage: { select: { property: { select: { code: true } } } } },
@@ -25,12 +30,18 @@ export class TrackingController {
       where: { id: link.id },
       data: { clicks: { increment: 1 }, lastClickAt: new Date() },
     });
+
+    const slug = (rawSlug ?? '').replace(/[^A-Z0-9]/gi, '').slice(0, 16);
+
     const marketplaceBase =
       process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
     const propertyCode = link.postPackage?.property?.code;
-    const target = propertyCode
-      ? `${marketplaceBase}/p/${propertyCode}?via=${postCode}`
-      : link.whatsappUrl; // fallback to WA if no property attached
+    if (!propertyCode) {
+      return res.redirect(302, link.whatsappUrl);
+    }
+    const target = slug
+      ? `${marketplaceBase}/p/${propertyCode}?via=${postCode}&s=${slug}`
+      : `${marketplaceBase}/p/${propertyCode}?via=${postCode}`;
     return res.redirect(302, target);
   }
 }

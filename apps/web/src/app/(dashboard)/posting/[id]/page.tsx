@@ -513,7 +513,7 @@ export default function PostPackageDetailPage({ params }: { params: { id: string
 
         {/* PLACEMENTS LEDGER — every place this listing has been posted */}
         <section className="xl:col-span-12">
-          <PlacementsPanel packageId={pkg.id} />
+          <PlacementsPanel packageId={pkg.id} packageShortUrl={pkg.trackingLink?.shortUrl ?? null} />
         </section>
       </div>
     </div>
@@ -761,12 +761,30 @@ interface PlacementRow {
   _count: { attributedLeads: number };
 }
 
-function PlacementsPanel({ packageId }: { packageId: string }) {
+function PlacementsPanel({ packageId, packageShortUrl }: { packageId: string; packageShortUrl: string | null }) {
   const { data, isLoading } = useQuery({
     queryKey: ['post-package-placements', packageId],
     queryFn: () => api<PlacementRow[]>(`/post-packages/${packageId}/placements`),
     refetchInterval: 30_000,
   });
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+
+  function buildPlacementUrl(slug: string | null): string | null {
+    if (!packageShortUrl || !slug) return null;
+    const sep = packageShortUrl.includes('?') ? '&' : '?';
+    return `${packageShortUrl}${sep}s=${slug}`;
+  }
+  async function copyPlacementLink(slug: string | null) {
+    const url = buildPlacementUrl(slug);
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedSlug(slug);
+      setTimeout(() => setCopiedSlug((c) => (c === slug ? null : c)), 1800);
+    } catch {
+      /* noop */
+    }
+  }
 
   const rows = data ?? [];
   const totalClicks = rows.reduce((s, r) => s + (r.clicks ?? 0), 0);
@@ -818,6 +836,7 @@ function PlacementsPanel({ packageId }: { packageId: string }) {
                 <th className="px-2 py-2 text-right">Clicks</th>
                 <th className="px-2 py-2 text-right">Leads</th>
                 <th className="px-2 py-2">Live post</th>
+                <th className="px-2 py-2">Track URL</th>
               </tr>
             </thead>
             <tbody>
@@ -858,12 +877,34 @@ function PlacementsPanel({ packageId }: { packageId: string }) {
                       <span className="text-gray-medium">—</span>
                     )}
                   </td>
+                  <td className="px-2 py-2">
+                    {r.trackingSlug && packageShortUrl ? (
+                      <button
+                        onClick={() => copyPlacementLink(r.trackingSlug)}
+                        title={buildPlacementUrl(r.trackingSlug) ?? ''}
+                        className="rounded-md border border-gray-light px-2 py-1 text-[10px] font-semibold text-navy-deep hover:bg-offwhite"
+                      >
+                        {copiedSlug === r.trackingSlug ? '✓ Copied' : 'Copy link'}
+                      </button>
+                    ) : (
+                      <span className="text-gray-medium">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {packageShortUrl && rows.length > 0 ? (
+        <p className="mt-3 rounded-md bg-amber-50 p-3 text-[11px] text-amber-900">
+          <strong>Tip for field agents:</strong> when posting to a new group, copy that
+          row&apos;s unique <em>Track URL</em> instead of the package link. Per-group clicks
+          only register on URLs with the <code>?s=&lt;slug&gt;</code> suffix — that&apos;s how
+          you can see which group brings the most leads.
+        </p>
+      ) : null}
     </div>
   );
 }
