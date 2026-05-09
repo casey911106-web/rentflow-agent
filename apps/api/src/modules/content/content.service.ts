@@ -133,24 +133,39 @@ export class ContentService {
     // Reuse the latest if one exists for this property; create a stub otherwise.
     const postPackage = await this.ensurePostPackage(property.id, property.companyId);
 
-    const trackingSlug = this.generateSlug();
-    const trackingUrl = `${MARKETPLACE_BASE}/p/${property.code}?s=${trackingSlug}`;
-
-    const captionWithLink = this.appendTrackingLink(input.caption, trackingUrl, channel.platform);
-
-    // Pick adapter by platform.
-    let result: { externalPostId: string; externalUrl: string | null };
-    if (channel.platform === 'telegram') {
-      const tg = await this.publishTelegram(channel, property, captionWithLink);
-      result = { externalPostId: String(tg.messageId), externalUrl: tg.externalUrl };
-    } else if (channel.platform === 'facebook') {
-      result = await this.publishFacebookPage(channel, property, captionWithLink);
-    } else if (channel.platform === 'instagram') {
-      result = await this.publishInstagram(channel, property, captionWithLink);
-    } else {
-      throw new BadRequestException(`Platform ${channel.platform} not yet supported`);
+    // Idempotency guard — Instagram carousel publishes can take 60-90s,
+    // longer than the browser's fetch timeout. If the operator sees
+    // "Failed to fetch" and clicks again, we'd double-post. We claim a
+    // pending placement row first; a duplicate request inside 5 minutes
+    // for the same (package, channel) is rejected as a 409.
+    const FIVE_MIN_MS = 5 * 60 * 1000;
+    const recent = await this.prisma.postPlacement.findFirst({
+      where: {
+        companyId: property.companyId,
+        postPackageId: postPackage.id,
+        channelName: channel.name,
+        automated: true,
+        publishedAt: { gte: new Date(Date.now() - FIVE_MIN_MS) },
+        removedAt: null,
+      },
+      orderBy: { publishedAt: 'desc' },
+    });
+    if (recent) {
+      const seconds = Math.round((Date.now() - recent.publishedAt.getTime()) / 1000);
+      const isPending = recent.externalPostId === 'pending';
+      throw new BadRequestException(
+        isPending
+          ? `A publish to ${channel.name} is already in progress (started ${seconds}s ago). Refresh the page in a moment to see the result.`
+          : `Already published to ${channel.name} ${seconds}s ago. Wait 5 minutes to publish again.`,
+      );
     }
 
+    const trackingSlug = this.generateSlug();
+    const trackingUrl = `${MARKETPLACE_BASE}/p/${property.code}?s=${trackingSlug}`;
+    const captionWithLink = this.appendTrackingLink(input.caption, trackingUrl, channel.platform);
+
+    // Claim the row up-front with externalPostId='pending' so subsequent
+    // duplicate clicks see it via the guard above.
     const placement = await this.prisma.postPlacement.create({
       data: {
         companyId: property.companyId,
@@ -158,15 +173,40 @@ export class ContentService {
         publisherUserId: input.publisherUserId,
         channelName: channel.name,
         channelKind: channel.platform,
-        externalUrl: result.externalUrl,
-        externalPostId: result.externalPostId,
+        externalPostId: 'pending',
         caption: captionWithLink,
         trackingSlug,
         automated: true,
       },
     });
 
-    return placement;
+    // Pick adapter by platform — actually publish.
+    let result: { externalPostId: string; externalUrl: string | null };
+    try {
+      if (channel.platform === 'telegram') {
+        const tg = await this.publishTelegram(channel, property, captionWithLink);
+        result = { externalPostId: String(tg.messageId), externalUrl: tg.externalUrl };
+      } else if (channel.platform === 'facebook') {
+        result = await this.publishFacebookPage(channel, property, captionWithLink);
+      } else if (channel.platform === 'instagram') {
+        result = await this.publishInstagram(channel, property, captionWithLink);
+      } else {
+        throw new BadRequestException(`Platform ${channel.platform} not yet supported`);
+      }
+    } catch (err) {
+      // Roll back the claim so the operator can retry without hitting the guard.
+      await this.prisma.postPlacement.delete({ where: { id: placement.id } }).catch(() => {});
+      throw err;
+    }
+
+    // Finalise the placement with the real provider ids.
+    return this.prisma.postPlacement.update({
+      where: { id: placement.id },
+      data: {
+        externalPostId: result.externalPostId,
+        externalUrl: result.externalUrl,
+      },
+    });
   }
 
   /** Increment click counter and timestamp for a tracking slug. Returns the placement (or null). */
