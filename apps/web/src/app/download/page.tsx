@@ -1,9 +1,15 @@
 import Link from 'next/link';
 
-const TESTFLIGHT_URL =
-  process.env.NEXT_PUBLIC_TESTFLIGHT_URL ?? 'https://testflight.apple.com/join/REPLACE_ME';
+const TESTFLIGHT_URL = process.env.NEXT_PUBLIC_TESTFLIGHT_URL ?? '';
 const ANDROID_APK_URL =
   process.env.NEXT_PUBLIC_ANDROID_APK_URL ?? 'https://expo.dev/artifacts/eas/bLHnPAi2eYMGhAmTRYyFzh.apk';
+const SUPPORT_WA_URL = 'https://wa.me/971585063316?text=Quiero%20unirme%20al%20TestFlight%20de%20RentFlow%20Agent%20-%20mi%20Apple%20ID%20es%3A%20';
+
+// Treat empty / placeholder URLs as 'not yet available' so we render an
+// invite-by-email card instead of a broken link until Apple approves the
+// build for external public-link distribution.
+const HAS_PUBLIC_TESTFLIGHT =
+  TESTFLIGHT_URL.length > 0 && !TESTFLIGHT_URL.includes('REPLACE_ME');
 
 const APP_VERSION = '1.0.0';
 
@@ -53,30 +59,59 @@ export default function DownloadPage() {
               </div>
             </div>
 
-            <p className="mb-4 text-xs text-gray-dark">
-              Distributed via TestFlight. You will install the TestFlight app first, then RentFlow.
-            </p>
-
-            <a
-              href={TESTFLIGHT_URL}
-              target="_blank"
-              rel="noopener"
-              className="block w-full rounded-md bg-black px-4 py-3 text-center text-sm font-bold text-white hover:bg-gray-900"
-            >
-              Open TestFlight invite ↗
-            </a>
-
-            <details className="mt-4 text-xs text-gray-dark">
-              <summary className="cursor-pointer font-semibold text-gray-dark">
-                How to install
-              </summary>
-              <ol className="mt-2 list-decimal space-y-1 pl-4 text-gray-medium">
-                <li>Tap the button above on your iPhone.</li>
-                <li>It opens TestFlight (install if you don&apos;t have it).</li>
-                <li>Tap &quot;Accept&quot; → then &quot;Install&quot;.</li>
-                <li>Open RentFlow Agent and log in.</li>
-              </ol>
-            </details>
+            {HAS_PUBLIC_TESTFLIGHT ? (
+              <>
+                <p className="mb-4 text-xs text-gray-dark">
+                  Distributed via TestFlight. You will install the TestFlight app first, then RentFlow.
+                </p>
+                <a
+                  href={TESTFLIGHT_URL}
+                  target="_blank"
+                  rel="noopener"
+                  className="block w-full rounded-md bg-black px-4 py-3 text-center text-sm font-bold text-white hover:bg-gray-900"
+                >
+                  Open TestFlight invite ↗
+                </a>
+                <details className="mt-4 text-xs text-gray-dark">
+                  <summary className="cursor-pointer font-semibold text-gray-dark">
+                    How to install
+                  </summary>
+                  <ol className="mt-2 list-decimal space-y-1 pl-4 text-gray-medium">
+                    <li>Tap the button above on your iPhone.</li>
+                    <li>It opens TestFlight (install if you don&apos;t have it).</li>
+                    <li>Tap &quot;Accept&quot; → then &quot;Install&quot;.</li>
+                    <li>Open RentFlow Agent and log in.</li>
+                  </ol>
+                </details>
+              </>
+            ) : (
+              <>
+                <p className="mb-4 text-xs text-gray-dark">
+                  iOS distribution is invite-only while Apple finishes reviewing the latest build.
+                  Send us your <strong>Apple ID email</strong> on WhatsApp and we&apos;ll add you within
+                  the day.
+                </p>
+                <a
+                  href={SUPPORT_WA_URL}
+                  target="_blank"
+                  rel="noopener"
+                  className="block w-full rounded-md bg-black px-4 py-3 text-center text-sm font-bold text-white hover:bg-gray-900"
+                >
+                  Request iOS access on WhatsApp ↗
+                </a>
+                <details className="mt-4 text-xs text-gray-dark">
+                  <summary className="cursor-pointer font-semibold text-gray-dark">
+                    What happens next
+                  </summary>
+                  <ol className="mt-2 list-decimal space-y-1 pl-4 text-gray-medium">
+                    <li>Tell us the email tied to your Apple ID.</li>
+                    <li>We add you to the TestFlight tester list (≤ 24h).</li>
+                    <li>Apple emails you a one-tap install link.</li>
+                    <li>Install TestFlight + RentFlow Agent.</li>
+                  </ol>
+                </details>
+              </>
+            )}
           </div>
 
           {/* Android */}
