@@ -65,6 +65,14 @@
           "savePhotosPermission": "RentFlow needs to save photos to your camera roll.",
           "isAccessMediaLocationEnabled": false
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0F172A",
+          "defaultChannel": "default"
+        }
       ]
     ],
     "extra": {

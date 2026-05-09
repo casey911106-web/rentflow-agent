@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
 import { api } from '../../lib/api';
+import { registerPushTokenIfPossible } from '../../lib/push';
 
 export default function TabsLayout() {
   const [unread, setUnread] = useState(0);
+  const router = useRouter();
 
   useEffect(() => {
     let active = true;
@@ -20,6 +23,21 @@ export default function TabsLayout() {
     const id = setInterval(poll, 60_000);
     return () => { active = false; clearInterval(id); };
   }, []);
+
+  // Register this device for push notifications + handle taps. Only fires
+  // once we're inside the (tabs) layout, which means the user is logged in.
+  useEffect(() => {
+    registerPushTokenIfPossible();
+
+    // Tap on a notification → navigate to the link in the data payload.
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as { link?: string } | null;
+      if (data?.link && typeof data.link === 'string') {
+        router.push(data.link as never);
+      }
+    });
+    return () => sub.remove();
+  }, [router]);
 
   return (
     <Tabs
