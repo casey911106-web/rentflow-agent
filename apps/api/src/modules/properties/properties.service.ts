@@ -31,7 +31,12 @@ export class PropertiesService {
           ? { OR: [{ name: { contains: filter.q, mode: 'insensitive' } }, { code: { contains: filter.q, mode: 'insensitive' } }] }
           : {}),
       },
-      include: { owner: true, _count: { select: { leads: true, postPackages: true, viewings: true } } },
+      include: {
+        owner: true,
+        submittedBy: { select: { id: true, fullName: true, email: true } },
+        assignedFieldAgent: { select: { id: true, fullName: true } },
+        _count: { select: { leads: true, postPackages: true, viewings: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

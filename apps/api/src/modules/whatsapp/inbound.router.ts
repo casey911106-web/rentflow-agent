@@ -6,6 +6,7 @@ import { InboundDebouncer } from './inbound-debouncer.service';
 import { OperatorInboundHandler } from './operator-inbound.handler';
 import { OwnerReplyParser } from '../automation/owner-reply.parser';
 import { PushService } from '../notifications/push.service';
+import { IngestionService } from '../ingestion/ingestion.service';
 
 @Injectable()
 export class InboundRouter {
@@ -18,6 +19,8 @@ export class InboundRouter {
     @Inject(forwardRef(() => OwnerReplyParser))
     private readonly ownerParser: OwnerReplyParser,
     private readonly push: PushService,
+    @Inject(forwardRef(() => IngestionService))
+    private readonly ingestion: IngestionService,
   ) {}
 
   /**
@@ -105,6 +108,42 @@ export class InboundRouter {
           mediaUrl: msg.mediaUrl,
         },
       }));
+
+    // Partner ingestion check — if the sender is a registered partner User
+    // (User.isPartner = true), route /property submissions to the
+    // IngestionService instead of the lead flow. Their phone never becomes
+    // a Lead, even on subsequent messages.
+    const partner = await this.prisma.user.findFirst({
+      where: {
+        companyId: company.id,
+        isPartner: true,
+        phoneE164: msg.from,
+        deletedAt: null,
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    if (partner) {
+      const handled = await this.ingestion.tryHandle({
+        companyId: company.id,
+        conversationId: conversation.id,
+        partnerUserId: partner.id,
+        partnerPhoneE164: msg.from,
+        inbound: {
+          type: msg.type,
+          body: msg.body ?? null,
+          raw: msg.raw,
+          receivedAt: msg.receivedAt,
+        },
+      });
+      if (handled) {
+        return { conversationId: conversation.id, messageId: stored.id };
+      }
+      // Partner sent something not /property and is not in an active
+      // ingestion session — silently ignore (don't create a Lead).
+      this.logger.debug(`Partner ${msg.from} sent non-ingestion message; ignoring.`);
+      return { conversationId: conversation.id, messageId: stored.id };
+    }
 
     let leadId = conversation.lead?.id;
     if (!leadId) {

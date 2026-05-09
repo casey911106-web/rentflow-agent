@@ -20,6 +20,7 @@ import { ScoresModule } from './modules/scores/scores.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { FilesModule } from './modules/files/files.module';
+import { IngestionModule } from './modules/ingestion/ingestion.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { HostawayModule } from './modules/integrations/hostaway/hostaway.module';
 import { PublicModule } from './modules/public/public.module';
@@ -57,6 +58,7 @@ import { RolesGuard } from './modules/auth/roles.guard';
     ScoresModule,
     AnalyticsModule,
     AutomationModule,
+    IngestionModule,
     NotificationsModule,
     HostawayModule,
     PublicModule,

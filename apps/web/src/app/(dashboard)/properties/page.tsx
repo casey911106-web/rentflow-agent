@@ -17,6 +17,8 @@ interface PropertyRow {
   qualityScore: number;
   readinessScore: number;
   owner: { fullName: string } | null;
+  submittedBy: { id: string; fullName: string | null; email: string | null } | null;
+  assignedFieldAgent: { id: string; fullName: string | null } | null;
   _count: { leads: number; postPackages: number; viewings: number };
 }
 
@@ -103,11 +105,26 @@ export default function PropertiesPage() {
                   <td className="px-4 py-3 font-mono text-xs">{p.code}</td>
                   <td className="px-4 py-3 font-semibold">
                     <Link href={`/properties/${p.id}`} className="text-navy hover:underline">{p.name}</Link>
+                    {p.submittedBy ? (
+                      <span
+                        title={`Sourced by partner: ${p.submittedBy.fullName ?? p.submittedBy.email}`}
+                        className="ml-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800"
+                      >
+                        Partner
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-gray-dark">{p.type.replace(/_/g, ' ')}</td>
                   <td className="px-4 py-3 text-gray-dark">{p.area ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-dark">{p.priceAed ? `AED ${Number(p.priceAed).toLocaleString()}` : '—'}</td>
-                  <td className="px-4 py-3 text-gray-dark">{p.owner?.fullName ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-dark">
+                    {p.owner?.fullName ?? '—'}
+                    {p.assignedFieldAgent?.fullName ? (
+                      <span className="block text-[11px] text-gray-medium">
+                        Viewings: {p.assignedFieldAgent.fullName}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3"><StatusPill status={p.status} /></td>
                   <td className="px-4 py-3"><ScoreBadge score={p.readinessScore} /></td>
                   <td className="px-4 py-3"><ScoreBadge score={p.qualityScore} /></td>
