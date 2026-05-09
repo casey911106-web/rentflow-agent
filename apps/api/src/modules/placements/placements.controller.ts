@@ -15,6 +15,14 @@ interface CreateBody {
   notes?: string;
 }
 
+interface ConfirmBody {
+  channelName: string;
+  channelKind?: string;
+  externalUrl?: string;
+  groupSize?: number;
+  notes?: string;
+}
+
 @ApiTags('placements')
 @Controller()
 export class PlacementsController {
@@ -47,6 +55,30 @@ export class PlacementsController {
     @Body() body: CreateBody,
   ) {
     return this.placements.create(user.companyId, user.sub, id, body);
+  }
+
+  /** Pre-generate a unique tracking slug for a Fast Posting *before* the
+   *  agent posts in a Facebook group. Returns the trackingUrl so they can
+   *  copy it to clipboard, paste it in their post, and confirm later. */
+  @Post('post-packages/:id/placements/draft')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin', 'ops_manager', 'field_agent')
+  draft(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.placements.createDraft(user.companyId, user.sub, id);
+  }
+
+  /** Confirm a draft placement: agent fills in channel name and any
+   *  optional details. From this moment on the placement counts toward
+   *  the 3-placement minimum and triggers the package's published bump. */
+  @Post('placements/:id/confirm')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin', 'ops_manager', 'field_agent')
+  confirm(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: ConfirmBody,
+  ) {
+    return this.placements.confirmDraft(user.companyId, user.sub, id, body);
   }
 
   /** List all placements of a Fast Posting (admin / ops view). */

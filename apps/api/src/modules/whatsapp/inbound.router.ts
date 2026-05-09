@@ -256,7 +256,7 @@ export class InboundRouter {
       });
       if (placement && placement.companyId === companyId) {
         attributionPlacementId = placement.id;
-        attributionSource = placement.channelKind ?? placement.channelName;
+        attributionSource = placement.channelKind ?? placement.channelName ?? undefined;
         postPackageId = postPackageId ?? placement.postPackage.id;
         propertyId = propertyId ?? placement.postPackage.propertyId;
         attributionConfidence = 'high';

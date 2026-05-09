@@ -88,6 +88,8 @@ export class PlacementsService {
         // Per-placement tracking slug — lets us see which group/channel the
         // clicks came from instead of bundling everything at the package level.
         trackingSlug: this.generateSlug(),
+        // Created with full details, so it counts as confirmed immediately.
+        confirmedAt: new Date(),
       },
     });
 
@@ -121,6 +123,95 @@ export class PlacementsService {
     return s;
   }
 
+  /** Pre-generate a unique tracking slug for a Fast Posting before the
+   *  agent posts in a Facebook group. The placement row is created with
+   *  channelName=null and confirmedAt=null — these get filled in via
+   *  `confirmDraft` after the agent comes back from posting. */
+  async createDraft(companyId: string, userId: string, postPackageId: string) {
+    const pkg = await this.prisma.postPackage.findFirst({
+      where: { id: postPackageId, companyId, deletedAt: null },
+      select: { id: true, trackingLink: { select: { shortUrl: true, postCode: true } } },
+    });
+    if (!pkg) throw new NotFoundException('PostPackage not found');
+
+    const slug = this.generateSlug();
+    const placement = await this.prisma.postPlacement.create({
+      data: {
+        companyId,
+        postPackageId,
+        publisherUserId: userId,
+        channelName: null,
+        trackingSlug: slug,
+        confirmedAt: null,
+      },
+    });
+
+    const shortUrl = pkg.trackingLink?.shortUrl ?? null;
+    const trackingUrl = shortUrl ? `${shortUrl}?s=${slug}` : null;
+    return {
+      id: placement.id,
+      trackingSlug: slug,
+      trackingUrl,
+      postCode: pkg.trackingLink?.postCode ?? null,
+    };
+  }
+
+  /** Fill in channelName + optional details on a draft placement. From
+   *  this moment on it counts as a real placement (toward the 3-min
+   *  threshold and the package's status bump). */
+  async confirmDraft(
+    companyId: string,
+    userId: string,
+    placementId: string,
+    body: CreatePlacementDto,
+  ) {
+    if (!body.channelName?.trim()) {
+      throw new BadRequestException('channelName is required');
+    }
+    const placement = await this.prisma.postPlacement.findFirst({
+      where: { id: placementId, companyId, removedAt: null },
+      select: { id: true, publisherUserId: true, confirmedAt: true, postPackageId: true },
+    });
+    if (!placement) throw new NotFoundException('Placement not found');
+    if (placement.publisherUserId !== userId) {
+      throw new ForbiddenException('You can only confirm your own draft placements');
+    }
+    if (placement.confirmedAt !== null) {
+      throw new BadRequestException('Placement already confirmed');
+    }
+
+    const updated = await this.prisma.postPlacement.update({
+      where: { id: placementId },
+      data: {
+        channelName: body.channelName.trim(),
+        channelKind: body.channelKind ?? null,
+        externalUrl: body.externalUrl ?? null,
+        groupSize: body.groupSize ?? null,
+        notes: body.notes ?? null,
+        confirmedAt: new Date(),
+      },
+    });
+
+    // Idempotent bump of the package's published status, mirroring `create`.
+    const pkg = await this.prisma.postPackage.findUnique({
+      where: { id: placement.postPackageId },
+      select: { status: true, channelName: true },
+    });
+    if (pkg && pkg.status !== 'published' && pkg.status !== 'paused' && pkg.status !== 'archived') {
+      await this.prisma.postPackage.update({
+        where: { id: placement.postPackageId },
+        data: {
+          status: 'published',
+          publishedById: userId,
+          publishedAt: new Date(),
+          channelName: pkg.channelName ?? body.channelName.trim(),
+        },
+      });
+    }
+
+    return updated;
+  }
+
   /** Placements the current user logged for this package (any status). */
   listMyForPackage(companyId: string, userId: string, postPackageId: string) {
     return this.prisma.postPlacement.findMany({
@@ -147,6 +238,7 @@ export class PlacementsService {
         postPackageId: assignment.postPackageId,
         publisherUserId: userId,
         removedAt: null,
+        confirmedAt: { not: null },
       },
     });
     if (count < minPlacements) {

@@ -111,4 +111,27 @@ export class PropertiesController {
     if (!file) throw new BadRequestException('Missing "file" field in multipart body');
     return this.properties.uploadMedia(user.companyId, id, user.sub, file, body);
   }
+
+  /** Delete one media row from a property. */
+  @Delete(':id/media/:mediaId')
+  @Roles(...ADMIN_OPS)
+  deleteMedia(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('mediaId') mediaId: string,
+  ) {
+    return this.properties.deleteMedia(user.companyId, id, mediaId);
+  }
+
+  /** Reorder media — pass the full ordered array of mediaIds. */
+  @Patch(':id/media/reorder')
+  @Roles(...ADMIN_OPS)
+  reorderMedia(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: { mediaIds?: string[] },
+  ) {
+    if (!body.mediaIds) throw new BadRequestException('mediaIds is required');
+    return this.properties.reorderMedia(user.companyId, id, body.mediaIds);
+  }
 }

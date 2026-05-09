@@ -948,11 +948,16 @@ model PostPlacement {
   publisherUserId String
   publisher       User        @relation("PostPlacementPublisher", fields: [publisherUserId], references: [id])
 
-  channelName     String      // "Dubai Marina FB Group", "PropertyFinder.ae", "Telegram Real Estate UAE"
+  channelName     String?     // "Dubai Marina FB Group", "PropertyFinder.ae". Null while in draft (slug pre-generated, agent hasn't confirmed where they posted yet).
   channelKind     String?     // facebook_group | classified | telegram | whatsapp_group | instagram | other
   externalUrl     String?     // direct link to the live post if shareable
   groupSize       Int?        // estimated audience reach (group members, page followers)
   notes           String?
+  /// When the agent confirmed where they posted this slug. Null = draft
+  /// (slug copied to clipboard, agent hasn't come back to confirm yet).
+  /// Drafts don't count toward the 3-placement minimum and don't trigger
+  /// the package's published-status bump — only confirmed placements do.
+  confirmedAt     DateTime?
 
   /// True when posted by an automated adapter (bot) vs. a human field agent.
   automated       Boolean     @default(false)

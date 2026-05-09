@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma, PropertyStatus, PropertyType } from '@rentflow/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -239,5 +239,46 @@ export class PropertiesService {
     const lastNum = last?.code?.match(/(\d+)$/)?.[1];
     const next = (lastNum ? parseInt(lastNum, 10) : 0) + 1;
     return `RF-${next.toString().padStart(3, '0')}`;
+  }
+
+  /** Soft-delete a media row + null its FileUpload entity link. */
+  async deleteMedia(companyId: string, propertyId: string, mediaId: string) {
+    const media = await this.prisma.propertyMedia.findFirst({
+      where: { id: mediaId, propertyId, property: { companyId, deletedAt: null } },
+    });
+    if (!media) throw new NotFoundException('Media not found');
+    await this.prisma.propertyMedia.delete({ where: { id: mediaId } });
+    return { ok: true, id: mediaId };
+  }
+
+  /**
+   * Reassign `position` on every media row to match the order of the
+   * incoming array. Anything not listed keeps its current position.
+   * Caller is expected to pass the FULL ordered list for that property.
+   */
+  async reorderMedia(companyId: string, propertyId: string, mediaIds: string[]) {
+    if (!Array.isArray(mediaIds) || mediaIds.length === 0) {
+      throw new BadRequestException('mediaIds must be a non-empty array');
+    }
+    const all = await this.prisma.propertyMedia.findMany({
+      where: { propertyId, property: { companyId, deletedAt: null } },
+      select: { id: true },
+    });
+    const valid = new Set(all.map((m) => m.id));
+    const seen = new Set<string>();
+    for (const id of mediaIds) {
+      if (!valid.has(id)) throw new BadRequestException(`Unknown media id: ${id}`);
+      if (seen.has(id)) throw new BadRequestException(`Duplicate media id: ${id}`);
+      seen.add(id);
+    }
+    await this.prisma.$transaction(
+      mediaIds.map((id, i) =>
+        this.prisma.propertyMedia.update({
+          where: { id },
+          data: { position: i },
+        }),
+      ),
+    );
+    return { ok: true, count: mediaIds.length };
   }
 }

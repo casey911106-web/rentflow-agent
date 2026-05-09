@@ -366,26 +366,11 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
             {property.media.length === 0 ? (
               <p className="text-sm text-gray-medium">No photos yet. Upload some to lift readiness score.</p>
             ) : (
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-5">
-                {property.media.map((m) => (
-                  <div
-                    key={m.id}
-                    className="aspect-square overflow-hidden rounded-md border border-gray-light bg-offwhite"
-                  >
-                    {m.file.mimeType.startsWith('image/') ? (
-                      <AuthedImage
-                        fileId={m.file.id}
-                        alt={m.caption ?? 'Property media'}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs text-gray-medium">
-                        {m.kind}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <MediaEditor
+                propertyId={params.id}
+                items={property.media}
+                onChanged={() => qc.invalidateQueries({ queryKey: ['properties', params.id] })}
+              />
             )}
           </div>
 
@@ -599,6 +584,166 @@ function BlockForm({
       >
         {pending ? 'Adding…' : 'Add block'}
       </button>
+    </div>
+  );
+}
+
+// =============================================================================
+// MEDIA EDITOR — drag to reorder + delete photos/videos
+// =============================================================================
+
+interface MediaItem {
+  id: string;
+  kind: string;
+  caption: string | null;
+  file: { id: string; mimeType: string; originalName: string | null };
+}
+
+function MediaEditor({
+  propertyId,
+  items,
+  onChanged,
+}: {
+  propertyId: string;
+  items: MediaItem[];
+  onChanged: () => void;
+}) {
+  const [order, setOrder] = useState<MediaItem[]>(items);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Re-sync if the parent gets new items (after upload, etc.)
+  useEffect(() => {
+    setOrder(items);
+  }, [items]);
+
+  const dirty = order.length !== items.length || order.some((m, i) => m.id !== items[i]?.id);
+
+  function onDragStart(id: string) {
+    setDragId(id);
+  }
+
+  function onDragOver(e: React.DragEvent, overId: string) {
+    e.preventDefault();
+    if (!dragId || dragId === overId) return;
+    setOrder((prev) => {
+      const fromIdx = prev.findIndex((m) => m.id === dragId);
+      const toIdx = prev.findIndex((m) => m.id === overId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      if (moved) next.splice(toIdx, 0, moved);
+      return next;
+    });
+  }
+
+  function onDragEnd() {
+    setDragId(null);
+  }
+
+  async function saveOrder() {
+    setBusy('save');
+    setErr(null);
+    try {
+      await api(`/properties/${propertyId}/media/reorder`, {
+        method: 'PATCH',
+        body: JSON.stringify({ mediaIds: order.map((m) => m.id) }),
+      });
+      onChanged();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteItem(id: string) {
+    if (!window.confirm('Eliminar esta foto/video? No se puede deshacer.')) return;
+    setBusy(id);
+    setErr(null);
+    try {
+      await api(`/properties/${propertyId}/media/${id}`, { method: 'DELETE' });
+      setOrder((prev) => prev.filter((m) => m.id !== id));
+      onChanged();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div>
+      <p className="mb-3 text-xs text-gray-medium">
+        Arrastra para reordenar — la primera foto es la portada en el marketplace y los posts.
+      </p>
+      {err ? (
+        <p className="mb-2 rounded-md bg-rose-50 p-2 text-xs text-rose-800">{err}</p>
+      ) : null}
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+        {order.map((m, i) => {
+          const isImage = m.file.mimeType.startsWith('image/');
+          const deleting = busy === m.id;
+          return (
+            <div
+              key={m.id}
+              draggable
+              onDragStart={() => onDragStart(m.id)}
+              onDragOver={(e) => onDragOver(e, m.id)}
+              onDragEnd={onDragEnd}
+              className={`group relative aspect-square cursor-move overflow-hidden rounded-md border-2 bg-offwhite transition-all ${
+                dragId === m.id ? 'border-teal opacity-50' : 'border-gray-light'
+              } ${deleting ? 'opacity-30' : ''}`}
+            >
+              {isImage ? (
+                <AuthedImage
+                  fileId={m.file.id}
+                  alt={m.caption ?? 'Property media'}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-gray-medium">
+                  {m.kind === 'video' ? '🎬 video' : m.kind}
+                </div>
+              )}
+              {/* Position badge */}
+              <span className="absolute left-1 top-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-bold text-white">
+                {i + 1}
+              </span>
+              {/* Delete button */}
+              <button
+                type="button"
+                onClick={() => deleteItem(m.id)}
+                disabled={deleting}
+                title="Eliminar"
+                className="absolute right-1 top-1 hidden h-7 w-7 items-center justify-center rounded-full bg-red-600 text-white shadow-md hover:bg-red-700 group-hover:flex disabled:opacity-50"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {dirty ? (
+        <div className="mt-3 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setOrder(items)}
+            className="rounded-md border border-gray-light px-3 py-1.5 text-xs font-semibold text-gray-dark hover:bg-offwhite"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={saveOrder}
+            disabled={busy === 'save'}
+            className="rounded-md bg-teal px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
+          >
+            {busy === 'save' ? 'Guardando…' : 'Guardar orden'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
