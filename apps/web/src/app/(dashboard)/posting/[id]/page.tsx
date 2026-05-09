@@ -510,6 +510,11 @@ export default function PostPackageDetailPage({ params }: { params: { id: string
         <section className="xl:col-span-12">
           <AutoPublishPanel packageId={pkg.id} />
         </section>
+
+        {/* PLACEMENTS LEDGER — every place this listing has been posted */}
+        <section className="xl:col-span-12">
+          <PlacementsPanel packageId={pkg.id} />
+        </section>
       </div>
     </div>
   );
@@ -732,6 +737,132 @@ function AutoPublishCard({
             </button>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// PLACEMENTS LEDGER — per-channel publishing record + click attribution
+// =============================================================================
+
+interface PlacementRow {
+  id: string;
+  channelName: string;
+  channelKind: string | null;
+  externalUrl: string | null;
+  groupSize: number | null;
+  trackingSlug: string | null;
+  clicks: number;
+  lastClickAt: string | null;
+  publishedAt: string;
+  automated: boolean;
+  publisher: { id: string; fullName: string | null; email: string | null } | null;
+  _count: { attributedLeads: number };
+}
+
+function PlacementsPanel({ packageId }: { packageId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['post-package-placements', packageId],
+    queryFn: () => api<PlacementRow[]>(`/post-packages/${packageId}/placements`),
+    refetchInterval: 30_000,
+  });
+
+  const rows = data ?? [];
+  const totalClicks = rows.reduce((s, r) => s + (r.clicks ?? 0), 0);
+  const totalLeads = rows.reduce((s, r) => s + (r._count?.attributedLeads ?? 0), 0);
+
+  return (
+    <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
+      <div className="mb-4 flex items-baseline justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-navy-deep">Placements ledger</h2>
+          <p className="mt-1 text-xs text-gray-medium">
+            Every channel this listing has been posted to. Each row gets a unique tracking slug
+            so we can see exactly which group brings clicks and which brings booked leads.
+          </p>
+        </div>
+        <div className="flex gap-4 text-right text-xs">
+          <div>
+            <p className="text-gray-medium">Total placements</p>
+            <p className="text-lg font-bold text-navy-deep">{rows.length}</p>
+          </div>
+          <div>
+            <p className="text-gray-medium">Clicks</p>
+            <p className="text-lg font-bold text-teal">{totalClicks}</p>
+          </div>
+          <div>
+            <p className="text-gray-medium">Leads attributed</p>
+            <p className="text-lg font-bold text-emerald-700">{totalLeads}</p>
+          </div>
+        </div>
+      </div>
+
+      {isLoading && <p className="text-xs text-gray-medium">Loading placements…</p>}
+      {!isLoading && rows.length === 0 && (
+        <p className="rounded-md bg-offwhite p-3 text-xs text-gray-medium">
+          No placements logged yet. Field agents log placements from the mobile app once they
+          publish. Auto-publish to owned channels (above) will also appear here.
+        </p>
+      )}
+      {rows.length > 0 && (
+        <div className="-mx-2 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-gray-medium">
+                <th className="px-2 py-2">Channel</th>
+                <th className="px-2 py-2">Type</th>
+                <th className="px-2 py-2">Publisher</th>
+                <th className="px-2 py-2">Posted</th>
+                <th className="px-2 py-2 text-right">Group size</th>
+                <th className="px-2 py-2 text-right">Clicks</th>
+                <th className="px-2 py-2 text-right">Leads</th>
+                <th className="px-2 py-2">Live post</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-t border-gray-light text-xs">
+                  <td className="px-2 py-2 font-semibold text-navy-deep">{r.channelName}</td>
+                  <td className="px-2 py-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      r.automated ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-700'
+                    }`}>
+                      {r.automated ? 'AUTO' : (r.channelKind ?? 'manual').replace(/_/g, ' ')}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2 text-gray-dark">
+                    {r.automated ? '— (bot)' : (r.publisher?.fullName ?? r.publisher?.email ?? '—')}
+                  </td>
+                  <td className="px-2 py-2 text-gray-medium">
+                    {new Date(r.publishedAt).toLocaleDateString()} {new Date(r.publishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                  <td className="px-2 py-2 text-right text-gray-medium">
+                    {r.groupSize ? r.groupSize.toLocaleString() : '—'}
+                  </td>
+                  <td className="px-2 py-2 text-right font-semibold text-teal">{r.clicks}</td>
+                  <td className="px-2 py-2 text-right font-semibold text-emerald-700">
+                    {r._count?.attributedLeads ?? 0}
+                  </td>
+                  <td className="px-2 py-2">
+                    {r.externalUrl ? (
+                      <a
+                        href={r.externalUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-teal hover:underline"
+                      >
+                        Open ↗
+                      </a>
+                    ) : (
+                      <span className="text-gray-medium">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

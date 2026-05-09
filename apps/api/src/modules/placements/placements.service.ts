@@ -53,7 +53,10 @@ export class PlacementsService {
     return this.prisma.postPlacement.findMany({
       where: { companyId, postPackageId, removedAt: null },
       orderBy: { publishedAt: 'desc' },
-      include: { publisher: { select: { id: true, fullName: true, email: true } } },
+      include: {
+        publisher: { select: { id: true, fullName: true, email: true } },
+        _count: { select: { attributedLeads: true } },
+      },
     });
   }
 
@@ -82,11 +85,46 @@ export class PlacementsService {
         externalUrl: dto.externalUrl ?? null,
         groupSize: dto.groupSize ?? null,
         notes: dto.notes ?? null,
+        // Per-placement tracking slug — lets us see which group/channel the
+        // clicks came from instead of bundling everything at the package level.
+        trackingSlug: this.generateSlug(),
       },
     });
+
+    // Bump the package status to 'published' on the FIRST placement so the
+    // dashboard reflects reality. Field agents publish then log placements;
+    // there's no separate ops approval step for them. If the package was
+    // already published or paused/archived, leave it alone.
+    if (pkg.status !== 'published' && pkg.status !== 'paused' && pkg.status !== 'archived') {
+      const existingCount = await this.prisma.postPlacement.count({
+        where: { postPackageId, removedAt: null },
+      });
+      if (existingCount === 1) {
+        // we are the first placement (count includes the row we just made)
+        await this.prisma.postPackage.update({
+          where: { id: postPackageId },
+          data: {
+            status: 'published',
+            publishedById: publisherUserId,
+            publishedAt: new Date(),
+            channelName: pkg.channelName ?? dto.channelName.trim(),
+          },
+        });
+      }
+    }
+
     // Don't auto-fulfill the assignment here — the publisher must reach the
     // minimum placement count and explicitly tap 'Mark complete'.
     return placement;
+  }
+
+  private generateSlug(): string {
+    const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let s = '';
+    for (let i = 0; i < 8; i++) {
+      s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+    }
+    return s;
   }
 
   /** Placements the current user logged for this package (any status). */
