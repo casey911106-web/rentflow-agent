@@ -18,6 +18,7 @@ type User = {
   roles: Role[];
   status: string;
   phoneE164: string | null;
+  isPartner: boolean;
   lastLoginAt: string | null;
   createdAt: string;
 };
@@ -28,6 +29,7 @@ export default function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 
   async function reload() {
     setLoading(true);
@@ -105,6 +107,12 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-3">
                       <button
+                        onClick={() => setEditingProfileId(u.id)}
+                        className="text-xs font-semibold text-teal hover:underline"
+                      >
+                        Edit profile
+                      </button>
+                      <button
                         onClick={() => setEditingId(u.id)}
                         className="text-xs font-semibold text-teal hover:underline"
                       >
@@ -130,6 +138,13 @@ export default function AdminUsersPage() {
         <EditRolesModal
           user={users.find((u) => u.id === editingId)!}
           onClose={() => setEditingId(null)}
+          onSaved={reload}
+        />
+      ) : null}
+      {editingProfileId ? (
+        <EditProfileModal
+          user={users.find((u) => u.id === editingProfileId)!}
+          onClose={() => setEditingProfileId(null)}
           onSaved={reload}
         />
       ) : null}
@@ -336,5 +351,78 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         {children}
       </div>
     </div>
+  );
+}
+
+function EditProfileModal({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: () => void }) {
+  const [fullName, setFullName] = useState(user.fullName);
+  const [phoneE164, setPhoneE164] = useState(user.phoneE164 ?? '');
+  const [isPartner, setIsPartner] = useState(user.isPartner);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api(`/users/${user.id}/profile`, {
+        method: 'PATCH',
+        body: JSON.stringify({ fullName, phoneE164, isPartner }),
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={`Edit profile — ${user.email}`} onClose={onClose}>
+      <div className="space-y-3">
+        <label className="block text-xs font-semibold text-gray-dark">Full name</label>
+        <input
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          className="w-full rounded-md border border-gray-light px-3 py-2 text-sm focus:border-teal focus:outline-none"
+        />
+
+        <label className="block text-xs font-semibold text-gray-dark">Phone (E.164 — e.g. +971...)</label>
+        <input
+          value={phoneE164}
+          onChange={(e) => setPhoneE164(e.target.value)}
+          placeholder="+971..."
+          className="w-full rounded-md border border-gray-light px-3 py-2 text-sm focus:border-teal focus:outline-none"
+        />
+
+        <label className="flex items-center gap-2 text-sm text-gray-dark">
+          <input
+            type="checkbox"
+            checked={isPartner}
+            onChange={(e) => setIsPartner(e.target.checked)}
+            className="h-4 w-4 accent-teal"
+          />
+          <span>Partner agent (can submit /property listings via WhatsApp)</span>
+        </label>
+        <p className="text-[11px] text-gray-medium">
+          Marks this number as a partner sourcing properties from external WhatsApp groups. They earn 50% of the
+          commission per closed deal. Requires their phone to be filled above.
+        </p>
+
+        {err ? <p className="rounded-md bg-rose-50 p-2 text-xs text-rose-800">{err}</p> : null}
+      </div>
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button onClick={onClose} className="rounded-md px-4 py-2 text-sm">Cancel</button>
+        <button
+          onClick={save}
+          disabled={busy || !fullName.trim()}
+          className="rounded-md bg-teal px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </Modal>
   );
 }

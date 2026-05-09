@@ -24,6 +24,12 @@ class UpdateStatusDto {
   @IsString() @IsIn(['active', 'suspended']) status!: 'active' | 'suspended';
 }
 
+class UpdateProfileDto {
+  @IsOptional() @IsString() @MinLength(2) fullName?: string;
+  @IsOptional() @IsString() phoneE164?: string;
+  @IsOptional() @IsBoolean() isPartner?: boolean;
+}
+
 @ApiTags('users')
 @Controller('users')
 export class UsersController {
@@ -61,5 +67,17 @@ export class UsersController {
     @Body() dto: UpdateStatusDto,
   ) {
     return this.users.updateStatus(user.companyId, user.sub, id, dto.status);
+  }
+
+  /** Edit fullName / phoneE164 / isPartner. Only super_admin. */
+  @Patch(':id/profile')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin')
+  updateProfile(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.users.updateProfile(user.companyId, id, dto);
   }
 }

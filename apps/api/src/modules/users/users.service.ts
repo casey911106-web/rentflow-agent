@@ -31,6 +31,7 @@ export class UsersService {
         roles: true,
         status: true,
         phoneE164: true,
+        isPartner: true,
         lastLoginAt: true,
         createdAt: true,
       },
@@ -119,6 +120,41 @@ export class UsersService {
         });
       }
       return updated;
+    });
+  }
+
+  /** Patch profile fields editable from /admin/users (fullName, phone, isPartner). */
+  async updateProfile(
+    companyId: string,
+    targetUserId: string,
+    patch: { fullName?: string; phoneE164?: string; isPartner?: boolean },
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const data: { fullName?: string; phoneE164?: string | null; isPartner?: boolean } = {};
+    if (patch.fullName !== undefined) data.fullName = patch.fullName.trim();
+    if (patch.phoneE164 !== undefined) {
+      const trimmed = patch.phoneE164.trim();
+      data.phoneE164 = trimmed.length === 0 ? null : trimmed;
+    }
+    if (patch.isPartner !== undefined) data.isPartner = patch.isPartner;
+
+    return this.prisma.user.update({
+      where: { id: targetUserId },
+      data,
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        phoneE164: true,
+        roles: true,
+        status: true,
+        isPartner: true,
+      },
     });
   }
 }
