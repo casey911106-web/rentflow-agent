@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
+import { formatPriceLines } from '@rentflow/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WhatsAppAdapterProvider } from './adapter.provider';
 import { isOptOut } from './parsers';
@@ -79,6 +80,17 @@ export class LeadWorkflowRunner {
       orderBy: { startedAt: 'desc' },
     });
     const state = (session?.state as LeadState | undefined) ?? 'initial_contact';
+
+    // Fast-path: when the inbound carries the `[viewing]` marker (sent by
+    // the marketplace 'Book a viewing' CTA) AND a property code, we bypass
+    // Claude entirely. Claude has repeatedly mis-handled this exact case by
+    // anchoring on stale conversation history; the response is fully
+    // determinable from the message + catalog so we just build it.
+    const fastPath = await this.tryDirectViewingResponse(lead, inboundText, state);
+    if (fastPath) {
+      await this.deliverFastPathSuggestion(input, lead, state, fastPath);
+      return;
+    }
 
     this.logger.log(`Generating suggestion for lead=${lead.id} state=${state}`);
 
@@ -198,5 +210,144 @@ export class LeadWorkflowRunner {
       where: { leadId, machine: 'lead', endedAt: null },
       data: { endedAt: new Date() },
     });
+  }
+
+  /**
+   * Builds a deterministic "yes you can book this property" reply when the
+   * inbound carries `[viewing]` (the marketplace book-viewing CTA marker)
+   * plus a parseable property code. Returns null if either is missing or
+   * the property is not available — those cases keep going through Claude.
+   *
+   * The whole point is to take Claude's hand off the wheel for this one
+   * very high-confidence intent. Returning a hard-coded shape guarantees
+   * the lead gets confirm + 3 numbers + the scheduler placeholder, every
+   * time, no matter how confused the chat history might look.
+   */
+  private async tryDirectViewingResponse(
+    lead: { companyId: string; whatsappConversation: { id: string } | null },
+    inboundText: string,
+    _state: LeadState,
+  ): Promise<{ suggestedReply: string; reasoning: string } | null> {
+    if (!lead.whatsappConversation) return null;
+    if (!/\[viewing\]/i.test(inboundText)) return null;
+
+    const codeMatch = inboundText.match(/\b((?:HW|RF)-[A-Z0-9-]+)\b/i);
+    const code = codeMatch?.[1]?.toUpperCase();
+    if (!code) return null;
+
+    const property = await this.prisma.property.findFirst({
+      where: { companyId: lead.companyId, code, deletedAt: null },
+      select: {
+        code: true,
+        name: true,
+        type: true,
+        priceAed: true,
+        depositAed: true,
+        status: true,
+      },
+    });
+    if (!property) return null;
+    if (property.status !== 'available') return null; // let Claude apologise + propose alternatives
+
+    const language = await this.detectLanguage(lead.whatsappConversation.id);
+    const prices = formatPriceLines(
+      {
+        type: property.type,
+        priceAed: property.priceAed as number | null,
+        depositAed: property.depositAed as number | null,
+      },
+      language,
+    );
+
+    const intro =
+      language === 'es'
+        ? `¡Perfecto! El ${property.code} (${property.name}) está disponible. ✨`
+        : `Great! ${property.code} (${property.name}) is available. ✨`;
+    const cta =
+      language === 'es'
+        ? `Elige el día y la hora que mejor te vengan:\n{{SCHEDULER_LINK}}`
+        : `Pick a day and time that works for you:\n{{SCHEDULER_LINK}}`;
+
+    return {
+      suggestedReply: `${intro}\n\n${prices}\n\n${cta}`,
+      reasoning: `[fast-path] [viewing] marker detected for ${property.code} — bypassed Claude, built deterministic confirmation + prices + scheduler link.`,
+    };
+  }
+
+  private async detectLanguage(conversationId: string): Promise<'en' | 'es'> {
+    const recent = await this.prisma.whatsAppMessage.findMany({
+      where: { conversationId, direction: 'inbound' },
+      orderBy: { createdAt: 'desc' },
+      take: 6,
+      select: { body: true },
+    });
+    const blob = recent.map((m) => m.body ?? '').join(' ').toLowerCase();
+    if (/\b(hola|gracias|por\s+favor|quiero|necesito|busco|cuánto|cuando|sí|disponible|verlo|verla|agendar|mándame|enviame)\b/.test(blob)) {
+      return 'es';
+    }
+    return 'en';
+  }
+
+  /**
+   * Persist a fast-path-built suggestion at confidence 0.99 and route it
+   * through the same auto-approve+send path the high-confidence Claude
+   * suggestions use. Falls back to operator review only if no super_admin
+   * is available to record the approval against.
+   */
+  private async deliverFastPathSuggestion(
+    input: RunInput,
+    lead: { id: string; status: string; whatsappConversation: { id: string } | null },
+    state: LeadState,
+    payload: { suggestedReply: string; reasoning: string },
+  ): Promise<void> {
+    if (!lead.whatsappConversation) return;
+    const suggestion = await this.prisma.suggestion.create({
+      data: {
+        companyId: input.companyId,
+        leadId: lead.id,
+        conversationId: lead.whatsappConversation.id,
+        inboundMessageId: input.inboundMessageId,
+        state,
+        suggestedReply: payload.suggestedReply,
+        reasoning: payload.reasoning,
+        confidence: 0.99,
+        stateAfter: 'closed',
+        escalate: false,
+        status: 'pending',
+        modelId: 'fast-path-bypass',
+      },
+    });
+
+    if (lead.status === 'new') {
+      await this.prisma.lead.update({ where: { id: lead.id }, data: { status: 'qualifying' } });
+    }
+
+    const sysUser = await this.prisma.user.findFirst({
+      where: {
+        companyId: input.companyId,
+        deletedAt: null,
+        status: 'active',
+        roles: { has: 'super_admin' },
+      },
+      select: { id: true },
+    });
+
+    if (sysUser) {
+      try {
+        await this.suggestions.approve(input.companyId, suggestion.id, sysUser.id);
+        this.logger.log(`Fast-path: auto-approved + sent suggestion=${suggestion.id} for [viewing] intent`);
+        return;
+      } catch (err) {
+        this.logger.warn(
+          `Fast-path auto-approve failed (${(err as Error).message}); leaving as pending for operator`,
+        );
+      }
+    }
+    // Best-effort operator notification when auto-approve didn't run.
+    try {
+      await this.notifier.notifyNewSuggestion(suggestion.id);
+    } catch (err) {
+      this.logger.warn(`Operator notify failed for fast-path suggestion=${suggestion.id}: ${(err as Error).message}`);
+    }
   }
 }
