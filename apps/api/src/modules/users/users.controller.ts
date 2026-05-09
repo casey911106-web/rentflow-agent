@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { ArrayMinSize, IsArray, IsBoolean, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
 import { Roles } from '../auth/roles.decorator';
@@ -18,6 +18,10 @@ class CreateUserDto {
 
 class UpdateRolesDto {
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) roles!: string[];
+}
+
+class UpdateStatusDto {
+  @IsString() @IsIn(['active', 'suspended']) status!: 'active' | 'suspended';
 }
 
 @ApiTags('users')
@@ -46,5 +50,16 @@ export class UsersController {
     @Body() dto: UpdateRolesDto,
   ) {
     return this.users.updateRoles(user.companyId, id, dto.roles);
+  }
+
+  @Patch(':id/status')
+  @UseGuards(RolesGuard)
+  @Roles('super_admin')
+  updateStatus(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateStatusDto,
+  ) {
+    return this.users.updateStatus(user.companyId, user.sub, id, dto.status);
   }
 }

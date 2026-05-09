@@ -90,4 +90,35 @@ export class UsersService {
       select: { id: true, email: true, fullName: true, roles: true, status: true },
     });
   }
+
+  async updateStatus(
+    companyId: string,
+    actorUserId: string,
+    targetUserId: string,
+    status: 'active' | 'suspended',
+  ) {
+    if (actorUserId === targetUserId) {
+      throw new BadRequestException('You cannot change your own status');
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, companyId, deletedAt: null },
+      select: { id: true, fieldAgent: { select: { id: true } } },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: targetUserId },
+        data: { status },
+        select: { id: true, email: true, fullName: true, roles: true, status: true },
+      });
+      if (user.fieldAgent) {
+        await tx.fieldAgent.update({
+          where: { id: user.fieldAgent.id },
+          data: { active: status === 'active' },
+        });
+      }
+      return updated;
+    });
+  }
 }

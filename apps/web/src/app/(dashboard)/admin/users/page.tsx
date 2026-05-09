@@ -77,33 +77,45 @@ export default function AdminUsersPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-t border-gray-light">
-                <td className="px-4 py-3 font-medium text-navy-deep">{u.fullName}</td>
-                <td className="px-4 py-3 text-gray-dark">{u.email}</td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {u.roles.map((r) => (
-                      <span key={r} className="rounded-full bg-teal/10 px-2 py-0.5 text-xs text-teal">
-                        {ROLE_LABEL[r]}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-gray-medium">{u.status}</td>
-                <td className="px-4 py-3 text-gray-medium">
-                  {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '—'}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    onClick={() => setEditingId(u.id)}
-                    className="text-xs font-semibold text-teal hover:underline"
-                  >
-                    Edit roles
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {users.map((u) => {
+              const isSuspended = u.status === 'suspended';
+              return (
+                <tr key={u.id} className={`border-t border-gray-light ${isSuspended ? 'opacity-60' : ''}`}>
+                  <td className="px-4 py-3 font-medium text-navy-deep">{u.fullName}</td>
+                  <td className="px-4 py-3 text-gray-dark">{u.email}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {u.roles.map((r) => (
+                        <span key={r} className="rounded-full bg-teal/10 px-2 py-0.5 text-xs text-teal">
+                          {ROLE_LABEL[r]}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      isSuspended ? 'bg-red-100 text-danger' : 'bg-emerald-100 text-emerald-700'
+                    }`}>
+                      {u.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-medium">
+                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-3">
+                      <button
+                        onClick={() => setEditingId(u.id)}
+                        className="text-xs font-semibold text-teal hover:underline"
+                      >
+                        Edit roles
+                      </button>
+                      <StatusToggleButton user={u} onChanged={reload} />
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {!loading && users.length === 0 ? (
               <tr><td className="px-4 py-6 text-center text-gray-medium" colSpan={6}>No users yet.</td></tr>
             ) : null}
@@ -263,6 +275,45 @@ function EditRolesModal({ user, onClose, onSaved }: { user: User; onClose: () =>
         </div>
       </div>
     </Modal>
+  );
+}
+
+function StatusToggleButton({ user, onChanged }: { user: User; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const isSuspended = user.status === 'suspended';
+
+  async function toggle() {
+    const next = isSuspended ? 'active' : 'suspended';
+    const verb = isSuspended ? 'enable' : 'disable';
+    if (!confirm(
+      isSuspended
+        ? `Re-enable ${user.fullName}? They will start receiving viewings and publication tasks again.`
+        : `Disable ${user.fullName}? They will stop receiving new viewings and publication tasks. Pending tasks already assigned will not be touched. They will also be unable to log in.`
+    )) return;
+    setBusy(true);
+    try {
+      await api(`/users/${user.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: next }),
+      });
+      onChanged();
+    } catch (e) {
+      alert(`Failed to ${verb} user: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      className={`text-xs font-semibold hover:underline disabled:opacity-50 ${
+        isSuspended ? 'text-emerald-700' : 'text-danger'
+      }`}
+    >
+      {busy ? '…' : isSuspended ? 'Enable' : 'Disable'}
+    </button>
   );
 }
 
