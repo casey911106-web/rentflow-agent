@@ -12,6 +12,7 @@ import {
 import { useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { formatPriceLines } from '@rentflow/shared';
 import { api, uploadFile } from '../../lib/api';
 
 interface ViewingDetail {
@@ -24,8 +25,11 @@ interface ViewingDetail {
     id: string;
     code: string;
     name: string;
+    type: string;
     area: string | null;
     addressLine: string | null;
+    priceAed: string | number | null;
+    depositAed: string | number | null;
   };
   lead: { fullName: string | null; phoneE164: string };
   feedback: {
@@ -190,6 +194,25 @@ export default function ViewingDetailScreen() {
           {viewing.property.area ?? ''}
           {viewing.property.addressLine ? ` · ${viewing.property.addressLine}` : ''}
         </Text>
+      </View>
+
+      {/* Pricing — what to quote in person */}
+      <View style={[card, { backgroundColor: '#0F172A' }]}>
+        <Text style={[cardLabel, { color: '#94A3B8' }]}>Quote these numbers</Text>
+        {formatPriceLines({
+          type: viewing.property.type,
+          priceAed: viewing.property.priceAed,
+          depositAed: viewing.property.depositAed,
+        })
+          .split('\n')
+          .map((line, i) => (
+            <Text
+              key={i}
+              style={{ color: 'white', fontSize: 15, fontWeight: i === 0 ? '700' : '500', marginTop: i === 0 ? 4 : 2 }}
+            >
+              {line}
+            </Text>
+          ))}
       </View>
 
       {/* Lead */}
