@@ -12,26 +12,49 @@
  */
 import { PrismaClient } from '@rentflow/database';
 import bcrypt from 'bcryptjs';
-import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
 const prisma = new PrismaClient();
 
-async function readHidden(prompt: string): Promise<string> {
-  const rl = createInterface({ input, output });
-  // Mute stdout while typing so the password doesn't echo. We restore
-  // it on each keystroke so the prompt itself stays visible.
-  output.write(prompt);
-  // @ts-expect-error — _writeToOutput is internal but stable enough for
-  // a one-off CLI script.
-  rl._writeToOutput = (s: string) => {
-    if (s === prompt || s.includes('\n')) output.write(s);
-    // else: swallow keystroke echo
-  };
-  const value = await rl.question('');
-  rl.close();
-  output.write('\n');
-  return value;
+function readHidden(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    output.write(prompt);
+    let value = '';
+    const isTTY = Boolean((input as { isTTY?: boolean }).isTTY);
+    if (isTTY) (input as { setRawMode?: (b: boolean) => void }).setRawMode?.(true);
+    input.resume();
+    input.setEncoding('utf8');
+
+    const onData = (chunk: Buffer | string) => {
+      const key = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      for (const ch of key) {
+        if (ch === '\n' || ch === '\r' || ch === '') {
+          if (isTTY) (input as { setRawMode?: (b: boolean) => void }).setRawMode?.(false);
+          input.pause();
+          input.off('data', onData);
+          output.write('\n');
+          return resolve(value);
+        }
+        if (ch === '') {
+          if (isTTY) (input as { setRawMode?: (b: boolean) => void }).setRawMode?.(false);
+          input.pause();
+          input.off('data', onData);
+          output.write('\n');
+          return reject(new Error('Cancelled'));
+        }
+        if (ch === '' || ch === '\b') {
+          if (value.length > 0) {
+            value = value.slice(0, -1);
+            output.write('\b \b');
+          }
+          continue;
+        }
+        value += ch;
+        output.write('*');
+      }
+    };
+    input.on('data', onData);
+  });
 }
 
 async function main() {

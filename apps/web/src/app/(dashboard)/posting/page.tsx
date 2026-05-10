@@ -18,17 +18,11 @@ interface PostPackageRow {
   pendingAssignmentsCount: number;
 }
 
-// Statuses that the round-robin scheduler picks up. Matches
-// ACTIVE_PACKAGE_STATUSES in apps/api/src/modules/placements/placements.scheduler.ts.
-// Anything in this set is "in daily posting rotation" — publishers can be
-// assigned the package and scheduled to post it on FB/WA groups.
-const IN_ROTATION_STATUSES = new Set([
-  'generated',
-  'scheduled',
-  'pending_approval',
-  'approved',
-  'published',
-]);
+// Statuses the round-robin scheduler considers "ready to assign". Mirrors
+// ACTIVE_PACKAGE_STATUSES in apps/api/src/modules/placements/placements.scheduler.ts —
+// keep both in sync. Auto-generated packages (`generated`, `pending_approval`)
+// are NOT in rotation: ops must Approve them first.
+const IN_ROTATION_STATUSES = new Set(['approved', 'published']);
 
 function isInRotation(status: string): boolean {
   return IN_ROTATION_STATUSES.has(status);
@@ -38,14 +32,20 @@ const TABS: Array<{ key: string; label: string; statuses: string[]; help?: strin
   {
     key: 'active',
     label: 'In rotation',
-    statuses: ['generated', 'scheduled', 'pending_approval', 'approved', 'published'],
-    help: 'Packages publishers can be assigned to right now (round-robin every 30 min)',
+    statuses: ['approved', 'published'],
+    help: 'Approved packages — round-robin assigns these to publishers every 30 min',
+  },
+  {
+    key: 'review',
+    label: 'Pending approval',
+    statuses: ['generated', 'scheduled', 'pending_approval'],
+    help: 'Auto-generated or queued — waiting for an Approve click before going to publishers',
   },
   {
     key: 'draft',
     label: 'Drafts',
     statuses: ['draft'],
-    help: 'Built but not yet entered the rotation pool',
+    help: 'Built but not yet generated for posting',
   },
   {
     key: 'paused',
@@ -158,6 +158,10 @@ export default function PostingPage() {
                       ? ` · ${pkg.pendingAssignmentsCount} publisher${pkg.pendingAssignmentsCount === 1 ? '' : 's'} working on it now`
                       : ' · waiting for next round-robin tick'}
                   </p>
+                ) : ['generated', 'scheduled', 'pending_approval'].includes(pkg.status) ? (
+                  <p className="mb-2 text-xs font-semibold text-amber-600">
+                    🟡 Pending approval — click into it and tap Approve to put in rotation
+                  </p>
                 ) : (
                   <p className="mb-2 text-xs font-semibold text-gray-medium">
                     ⏸ Out of rotation
@@ -197,7 +201,9 @@ export default function PostingPage() {
 function RotationSummary({ data }: { data: PostPackageRow[] }) {
   if (data.length === 0) return null;
   const inRotation = data.filter((p) => isInRotation(p.status));
-  const drafts = data.filter((p) => p.status === 'draft');
+  const pendingApproval = data.filter((p) =>
+    ['generated', 'scheduled', 'pending_approval'].includes(p.status),
+  );
   const paused = data.filter((p) => ['paused', 'archived', 'failed'].includes(p.status));
   const activelyWorked = inRotation.filter((p) => p.pendingAssignmentsCount > 0).length;
   const totalPendingAssignments = inRotation.reduce((s, p) => s + p.pendingAssignmentsCount, 0);
@@ -216,10 +222,11 @@ function RotationSummary({ data }: { data: PostPackageRow[] }) {
         }
       />
       <SummaryTile
-        label="Drafts"
-        count={drafts.length}
-        items={drafts}
-        sub="Generated but not yet entered the rotation pool"
+        label="Pending approval"
+        count={pendingApproval.length}
+        items={pendingApproval}
+        leftAccent="border-l-amber-500"
+        sub="Auto-generated — review and approve to put in rotation"
       />
       <SummaryTile
         label="Paused / archived"

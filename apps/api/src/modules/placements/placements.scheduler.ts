@@ -16,7 +16,12 @@ const ASSIGNMENT_TTL_HOURS = 1;
  *  publish it, then a new one shows up. */
 const MIN_INTERVAL_BETWEEN_ASSIGNMENTS_HOURS = 1;
 const ELIGIBLE_PUBLISHER_ROLES = ['super_admin', 'ops_manager', 'field_agent'];
-const ACTIVE_PACKAGE_STATUSES = ['generated', 'scheduled', 'pending_approval', 'approved', 'published'];
+/** Statuses the round-robin scheduler considers "ready to assign to
+ *  publishers". Tightened from the previous laxer set — auto-generated
+ *  packages (`generated`, `pending_approval`) used to be treated as in
+ *  rotation, which surprised ops who hadn't reviewed them yet. Now an
+ *  explicit Approve click is required before publishers see the task. */
+const ACTIVE_PACKAGE_STATUSES = ['approved', 'published'];
 
 /**
  * Round-robin Fast Posting scheduler.
