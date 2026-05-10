@@ -69,12 +69,27 @@ export class InboundRouter {
       if (handled) {
         return { conversationId: 'operator', messageId: msg.externalId ?? '' };
       }
-      // The operator's personal number is reserved for publishing /
-      // operations — it must never be tracked as a customer Lead. If
-      // operatorHandler didn't catch the message (not a button, no pending
-      // edit, etc.) we return without falling through to lead creation.
-      this.logger.debug(`Operator inbound from ${msg.from} ignored (not a button/edit): ${msg.body?.slice(0, 80) ?? ''}`);
-      return { conversationId: 'operator', messageId: msg.externalId ?? '' };
+      // The operator may ALSO be registered as a partner User
+      // (isPartner=true) — in that case `/property` ingestion lives
+      // further down the router. We only short-circuit here if the
+      // operator phone is NOT a partner, so the personal number is still
+      // protected from accidental Lead creation when neither operator
+      // nor partner semantics apply.
+      const operatorIsPartner = await this.prisma.user.findFirst({
+        where: {
+          companyId: company.id,
+          isPartner: true,
+          phoneE164: msg.from,
+          deletedAt: null,
+          status: 'active',
+        },
+        select: { id: true },
+      });
+      if (!operatorIsPartner) {
+        this.logger.debug(`Operator inbound from ${msg.from} ignored (not a button/edit, not a partner): ${msg.body?.slice(0, 80) ?? ''}`);
+        return { conversationId: 'operator', messageId: msg.externalId ?? '' };
+      }
+      // Fall through — partner ingestion block below will catch it.
     }
 
     // Owner shortcut: if the message is from a known owner and there's a
