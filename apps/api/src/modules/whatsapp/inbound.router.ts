@@ -59,7 +59,6 @@ export class InboundRouter {
     // a button reply or a pending-edit text — those don't create a Lead.
     const operatorE164 = process.env.OPERATOR_WHATSAPP_E164;
     if (operatorE164 && msg.from === operatorE164) {
-      // Persist a minimal record for traceability (no conversation/lead).
       const handled = await this.operatorHandler.handle({
         companyId: company.id,
         operatorE164,
@@ -70,8 +69,12 @@ export class InboundRouter {
       if (handled) {
         return { conversationId: 'operator', messageId: msg.externalId ?? '' };
       }
-      // Fall through to normal lead flow if the operator was not acting on a
-      // suggestion (e.g. they're testing as a regular lead).
+      // The operator's personal number is reserved for publishing /
+      // operations — it must never be tracked as a customer Lead. If
+      // operatorHandler didn't catch the message (not a button, no pending
+      // edit, etc.) we return without falling through to lead creation.
+      this.logger.debug(`Operator inbound from ${msg.from} ignored (not a button/edit): ${msg.body?.slice(0, 80) ?? ''}`);
+      return { conversationId: 'operator', messageId: msg.externalId ?? '' };
     }
 
     // Owner shortcut: if the message is from a known owner and there's a
