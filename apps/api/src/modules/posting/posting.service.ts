@@ -77,7 +77,10 @@ export class PostingService {
 
   list(companyId: string) {
     return this.prisma.postPackage.findMany({
-      where: { companyId, deletedAt: null },
+      // Fast Posting Studio is for property listings only — channel-growth
+      // campaigns live in their own admin page (/admin/growth-campaigns)
+      // and have property=null which would crash this UI's pkg.property.code.
+      where: { companyId, deletedAt: null, kind: 'property_listing' },
       include: {
         property: {
           select: {
