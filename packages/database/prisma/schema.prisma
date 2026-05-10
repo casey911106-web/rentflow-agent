@@ -286,6 +286,7 @@ model Company {
   fieldAgents             FieldAgent[]
   suggestions             Suggestion[]
   trainingExamples        TrainingExample[]
+  scheduledChannelPosts   ScheduledChannelPost[]
 
   @@index([slug])
 }
@@ -328,6 +329,7 @@ model User {
   submittedProperties Property[]       @relation("PropertySubmittedBy")
   assignedProperties  Property[]       @relation("PropertyAssignedAgent")
   partnerDeals        Deal[]           @relation("DealPartner")
+  scheduledChannelPosts ScheduledChannelPost[] @relation("ScheduledChannelPostCreator")
 
   @@unique([companyId, email])
   @@index([companyId])
@@ -897,6 +899,7 @@ model PostChannel {
   createdAt  DateTime        @default(now())
 
   postPackages PostPackage[]
+  scheduledPosts ScheduledChannelPost[]
 
   @@unique([companyId, platform, name])
   @@index([companyId])
@@ -957,9 +960,40 @@ model PostPackage {
   leads        Lead[]
   placements   PostPlacement[]
   assignments  PostAssignment[]
+  scheduledPosts ScheduledChannelPost[]
 
   @@index([companyId, status])
   @@index([propertyId])
+}
+
+/// Queued auto-publish jobs to owned channels (Telegram/IG/FB page) that ops
+/// scheduled for a future time. A cron picks up `status='pending'` rows
+/// where `scheduledFor <= now` and fires the same auto-publish path the
+/// "Publish now" button uses. The resulting PostPlacement is linked back
+/// via `placementId` for audit.
+model ScheduledChannelPost {
+  id            String      @id @default(uuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id])
+  postPackageId String
+  postPackage   PostPackage @relation(fields: [postPackageId], references: [id])
+  channelId     String
+  channel       PostChannel @relation(fields: [channelId], references: [id])
+  caption       String
+  /// UTC. Frontend converts Dubai-local input (UTC+4) to UTC before send.
+  scheduledFor  DateTime
+  /// pending | done | failed | cancelled
+  status        String      @default("pending")
+  attemptedAt   DateTime?
+  placementId   String?
+  errorMessage  String?
+  createdById   String?
+  createdBy     User?       @relation("ScheduledChannelPostCreator", fields: [createdById], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([companyId, status, scheduledFor])
+  @@index([postPackageId])
 }
 
 /// One row per actual external publication of a PostPackage. Publishers

@@ -81,6 +81,73 @@ export class PostingService {
     return placement;
   }
 
+  // ===========================================================================
+  // SCHEDULED AUTO-PUBLISH — ops queues a future publish to an owned channel,
+  // a 1-min cron picks it up and fires the same autoPublish path.
+  // ===========================================================================
+
+  async schedulePost(
+    companyId: string,
+    userId: string,
+    packageId: string,
+    body: { channelId: string; caption: string; scheduledFor: string },
+  ) {
+    const pkg = await this.findById(companyId, packageId);
+    if (!pkg.propertyId) {
+      throw new BadRequestException('Schedule is only available for property listings');
+    }
+    if (!body.channelId) throw new BadRequestException('channelId is required');
+    if (!body.caption?.trim()) throw new BadRequestException('caption is required');
+    if (!body.scheduledFor) throw new BadRequestException('scheduledFor is required');
+    const when = new Date(body.scheduledFor);
+    if (isNaN(when.getTime())) throw new BadRequestException('scheduledFor must be a valid date');
+    if (when.getTime() < Date.now() - 60_000) {
+      throw new BadRequestException('scheduledFor must be in the future');
+    }
+    const channel = await this.prisma.postChannel.findFirst({
+      where: { id: body.channelId, companyId, automated: true, active: true },
+    });
+    if (!channel) throw new NotFoundException('Channel not found or not automated');
+
+    return this.prisma.scheduledChannelPost.create({
+      data: {
+        companyId,
+        postPackageId: packageId,
+        channelId: body.channelId,
+        caption: body.caption.trim(),
+        scheduledFor: when,
+        createdById: userId,
+      },
+      include: { channel: { select: { name: true, platform: true } } },
+    });
+  }
+
+  /** List scheduled posts for a package (UI shows them under the auto-publish form). */
+  listScheduledPosts(companyId: string, packageId: string) {
+    return this.prisma.scheduledChannelPost.findMany({
+      where: { companyId, postPackageId: packageId },
+      orderBy: { scheduledFor: 'asc' },
+      include: {
+        channel: { select: { id: true, name: true, platform: true } },
+        createdBy: { select: { fullName: true } },
+      },
+    });
+  }
+
+  async cancelScheduledPost(companyId: string, scheduledId: string) {
+    const row = await this.prisma.scheduledChannelPost.findFirst({
+      where: { id: scheduledId, companyId },
+    });
+    if (!row) throw new NotFoundException('Scheduled post not found');
+    if (row.status !== 'pending') {
+      throw new BadRequestException(`Cannot cancel — already ${row.status}`);
+    }
+    return this.prisma.scheduledChannelPost.update({
+      where: { id: scheduledId },
+      data: { status: 'cancelled', attemptedAt: new Date() },
+    });
+  }
+
   async list(companyId: string) {
     const packages = await this.prisma.postPackage.findMany({
       // Fast Posting Studio is for property listings only — channel-growth

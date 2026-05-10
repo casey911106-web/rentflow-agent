@@ -615,6 +615,43 @@ interface PublishResult {
   publishedAt: string;
 }
 
+interface ScheduledChannelPostRow {
+  id: string;
+  status: string; // pending | attempting | done | failed | cancelled
+  scheduledFor: string;
+  caption: string;
+  attemptedAt: string | null;
+  errorMessage: string | null;
+  channel: { id: string; name: string; platform: string };
+  createdBy: { fullName: string | null } | null;
+}
+
+const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000;
+/** Format the next "default" datetime-local value for the picker — 1 hour
+ *  from now in Dubai time. The <input type="datetime-local"> expects a
+ *  string in `YYYY-MM-DDTHH:MM` format with NO timezone suffix; the user
+ *  reads it as local Dubai time. */
+function defaultDubaiDateTime(): string {
+  const t = new Date(Date.now() + 60 * 60 * 1000 + DUBAI_OFFSET_MS);
+  // toISOString gives UTC; we already shifted by +4 so the resulting
+  // YYYY-MM-DDTHH:MM digits ARE Dubai-local.
+  return t.toISOString().slice(0, 16);
+}
+/** Convert the picker's Dubai-local input into a UTC ISO string the API
+ *  stores. The picker has no timezone awareness, so we explicitly
+ *  subtract the Dubai offset. */
+function dubaiInputToUtcIso(localValue: string): string {
+  const asIfUtc = new Date(`${localValue}:00.000Z`).getTime();
+  return new Date(asIfUtc - DUBAI_OFFSET_MS).toISOString();
+}
+/** Format a UTC ISO timestamp back to a Dubai-local human label. */
+function utcIsoToDubaiLabel(iso: string): string {
+  const d = new Date(new Date(iso).getTime() + DUBAI_OFFSET_MS);
+  const datePart = d.toISOString().slice(0, 10);
+  const timePart = d.toISOString().slice(11, 16);
+  return `${datePart} ${timePart} Dubai`;
+}
+
 function AutoPublishCard({
   packageId,
   channel,
@@ -625,6 +662,8 @@ function AutoPublishCard({
   const qc = useQueryClient();
   const [caption, setCaption] = useState('');
   const [published, setPublished] = useState<PublishResult | null>(null);
+  const [scheduleMode, setScheduleMode] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState<string>(defaultDubaiDateTime());
 
   const draft = useMutation({
     mutationFn: () =>
@@ -645,6 +684,27 @@ function AutoPublishCard({
       setPublished(res);
       qc.invalidateQueries({ queryKey: ['post-package', packageId] });
       qc.invalidateQueries({ queryKey: ['post-packages'] });
+    },
+  });
+
+  const schedule = useMutation({
+    mutationFn: () =>
+      api<ScheduledChannelPostRow>(
+        `/post-packages/${packageId}/schedule-auto-publish`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            channelId: channel.id,
+            caption,
+            scheduledFor: dubaiInputToUtcIso(scheduleAt),
+          }),
+        },
+      ),
+    onSuccess: () => {
+      setCaption('');
+      setScheduleMode(false);
+      setScheduleAt(defaultDubaiDateTime());
+      qc.invalidateQueries({ queryKey: ['scheduled-posts', packageId] });
     },
   });
 
@@ -728,16 +788,120 @@ function AutoPublishCard({
             >
               {draft.isPending ? 'Drafting…' : '✨ Draft with AI'}
             </button>
-            <button
-              onClick={() => publish.mutate()}
-              disabled={publish.isPending || !caption.trim()}
-              className="flex-1 rounded-md bg-teal px-3 py-2 text-xs font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
-            >
-              {publish.isPending ? 'Publishing…' : 'Publish now'}
-            </button>
+            {scheduleMode ? (
+              <button
+                onClick={() => schedule.mutate()}
+                disabled={schedule.isPending || !caption.trim() || !scheduleAt}
+                className="flex-1 rounded-md bg-teal px-3 py-2 text-xs font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
+              >
+                {schedule.isPending ? 'Scheduling…' : '📅 Schedule'}
+              </button>
+            ) : (
+              <button
+                onClick={() => publish.mutate()}
+                disabled={publish.isPending || !caption.trim()}
+                className="flex-1 rounded-md bg-teal px-3 py-2 text-xs font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
+              >
+                {publish.isPending ? 'Publishing…' : 'Publish now'}
+              </button>
+            )}
           </div>
+
+          <div className="mt-3 rounded-md border border-gray-light bg-white p-3">
+            <label className="flex items-center gap-2 text-xs font-semibold text-gray-dark">
+              <input
+                type="checkbox"
+                checked={scheduleMode}
+                onChange={(e) => setScheduleMode(e.target.checked)}
+              />
+              Schedule for later (Dubai time)
+            </label>
+            {scheduleMode ? (
+              <div className="mt-2">
+                <input
+                  type="datetime-local"
+                  value={scheduleAt}
+                  onChange={(e) => setScheduleAt(e.target.value)}
+                  className="w-full rounded-md border border-gray-light p-2 text-sm"
+                />
+                <p className="mt-1 text-[11px] text-gray-medium">
+                  The 1-min cron picks it up at this time and fires Publish on its own.
+                </p>
+                {schedule.isError ? (
+                  <p className="mt-2 rounded-md bg-rose-50 p-2 text-xs text-rose-800">
+                    {(schedule.error as Error)?.message ?? 'Schedule failed.'}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <ScheduledPostsList packageId={packageId} channelId={channel.id} />
         </>
       )}
+    </div>
+  );
+}
+
+function ScheduledPostsList({ packageId, channelId }: { packageId: string; channelId: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['scheduled-posts', packageId],
+    queryFn: () => api<ScheduledChannelPostRow[]>(`/post-packages/${packageId}/scheduled-posts`),
+    refetchInterval: 30_000,
+  });
+  const cancel = useMutation({
+    mutationFn: (id: string) =>
+      api(`/post-packages/${packageId}/scheduled-posts/${id}/cancel`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['scheduled-posts', packageId] }),
+  });
+  const myChannelRows = (data ?? []).filter((r) => r.channel.id === channelId);
+  if (myChannelRows.length === 0) return null;
+
+  const statusColor: Record<string, string> = {
+    pending: 'bg-amber-100 text-amber-800',
+    attempting: 'bg-amber-100 text-amber-800',
+    done: 'bg-emerald-100 text-emerald-800',
+    failed: 'bg-rose-100 text-rose-800',
+    cancelled: 'bg-gray-200 text-gray-700',
+  };
+
+  return (
+    <div className="mt-3 rounded-md border border-gray-light bg-white p-3">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-medium">
+        Scheduled for this channel
+      </p>
+      <ul className="space-y-2">
+        {myChannelRows.map((r) => (
+          <li key={r.id} className="flex items-center justify-between gap-2 text-xs">
+            <div>
+              <p className="font-semibold text-navy-deep">{utcIsoToDubaiLabel(r.scheduledFor)}</p>
+              <p className="text-gray-medium">
+                <span
+                  className={`mr-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                    statusColor[r.status] ?? 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {r.status}
+                </span>
+                {r.createdBy?.fullName ? `by ${r.createdBy.fullName}` : null}
+              </p>
+              {r.errorMessage ? (
+                <p className="mt-1 text-[11px] text-rose-700">{r.errorMessage}</p>
+              ) : null}
+            </div>
+            {r.status === 'pending' ? (
+              <button
+                onClick={() => cancel.mutate(r.id)}
+                disabled={cancel.isPending}
+                className="rounded-md border border-gray-light px-2 py-1 text-[11px] hover:bg-offwhite"
+              >
+                Cancel
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

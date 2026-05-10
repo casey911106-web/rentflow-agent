@@ -93,4 +93,31 @@ export class PostingController {
   ) {
     return this.posting.autoPublish(user.companyId, id, user.sub, body);
   }
+
+  /** Schedule an auto-publish for a future Dubai-local time. The frontend
+   *  converts to UTC ISO before sending. A 1-min cron fires the actual
+   *  publish at the right moment. */
+  @Post(':id/schedule-auto-publish')
+  schedulePost(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: { channelId: string; caption: string; scheduledFor: string },
+  ) {
+    return this.posting.schedulePost(user.companyId, user.sub, id, body);
+  }
+
+  /** List scheduled posts for this package (pending, done, failed, cancelled). */
+  @Get(':id/scheduled-posts')
+  listScheduled(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.posting.listScheduledPosts(user.companyId, id);
+  }
+
+  /** Cancel a pending scheduled post. */
+  @Post(':id/scheduled-posts/:scheduledId/cancel')
+  cancelScheduled(
+    @CurrentUser() user: JwtPayload,
+    @Param('scheduledId') scheduledId: string,
+  ) {
+    return this.posting.cancelScheduledPost(user.companyId, scheduledId);
+  }
 }
