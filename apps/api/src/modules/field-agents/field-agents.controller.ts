@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt.strategy';
@@ -39,17 +39,44 @@ export class FieldAgentsController {
     });
   }
 
-  /** Mobile: today's viewings for the current user (if they're a field agent). */
+  /** Mobile: viewings for the current field agent. Default range is today;
+   *  pass `?range=week` to get from today through end-of-week (Sunday 23:59
+   *  Dubai time) so agents can plan ahead. */
   @Get('me/today')
-  async myToday(@CurrentUser() user: JwtPayload) {
+  async myToday(
+    @CurrentUser() user: JwtPayload,
+    @Query('range') range?: string,
+  ) {
     const fa = await this.prisma.fieldAgent.findUnique({ where: { userId: user.sub } });
     if (!fa) return [];
-    const start = new Date();
-    start.setUTCHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setUTCHours(23, 59, 59, 999);
+
+    // Dubai is UTC+4 year-round (no DST). Compute boundaries in Dubai
+    // local time then convert back to UTC for the Prisma query.
+    const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000;
+    const nowDubai = new Date(Date.now() + DUBAI_OFFSET_MS);
+    const dubaiTodayStart = new Date(nowDubai);
+    dubaiTodayStart.setUTCHours(0, 0, 0, 0);
+    const startUTC = new Date(dubaiTodayStart.getTime() - DUBAI_OFFSET_MS);
+
+    let endUTC: Date;
+    if (range === 'week') {
+      // End of current Dubai week = Sunday 23:59:59.999 Dubai time. Mon=1
+      // ... Sun=0 by JS getUTCDay convention, so days-to-sunday is
+      // (7 - dow) % 7 (0 if today is Sunday).
+      const dow = dubaiTodayStart.getUTCDay();
+      const daysToSunday = (7 - dow) % 7;
+      const dubaiWeekEnd = new Date(dubaiTodayStart);
+      dubaiWeekEnd.setUTCDate(dubaiWeekEnd.getUTCDate() + daysToSunday);
+      dubaiWeekEnd.setUTCHours(23, 59, 59, 999);
+      endUTC = new Date(dubaiWeekEnd.getTime() - DUBAI_OFFSET_MS);
+    } else {
+      const dubaiTodayEnd = new Date(dubaiTodayStart);
+      dubaiTodayEnd.setUTCHours(23, 59, 59, 999);
+      endUTC = new Date(dubaiTodayEnd.getTime() - DUBAI_OFFSET_MS);
+    }
+
     return this.prisma.viewing.findMany({
-      where: { fieldAgentId: fa.id, scheduledAt: { gte: start, lte: end } },
+      where: { fieldAgentId: fa.id, scheduledAt: { gte: startUTC, lte: endUTC } },
       include: { property: true, lead: true },
       orderBy: { scheduledAt: 'asc' },
     });

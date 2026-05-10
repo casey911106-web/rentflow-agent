@@ -36,6 +36,50 @@ function greetingFor(date: Date): string {
   return 'Good evening';
 }
 
+type Range = 'today' | 'week';
+
+const DUBAI_OFFSET_MS = 4 * 60 * 60 * 1000;
+function dubaiDateKey(iso: string): string {
+  // Returns 'YYYY-MM-DD' bucketed by Dubai local date so viewings group
+  // cleanly across the day boundary regardless of the device's timezone.
+  const d = new Date(new Date(iso).getTime() + DUBAI_OFFSET_MS);
+  return d.toISOString().slice(0, 10);
+}
+function dubaiDayLabel(iso: string): string {
+  const d = new Date(new Date(iso).getTime() + DUBAI_OFFSET_MS);
+  const today = new Date(Date.now() + DUBAI_OFFSET_MS).toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + DUBAI_OFFSET_MS + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const key = d.toISOString().slice(0, 10);
+  if (key === today) return 'TODAY';
+  if (key === tomorrow) return 'TOMORROW';
+  // Day name + date — "Wed · 14 May"
+  const weekday = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][d.getUTCDay()] ?? '';
+  const dayNum = d.getUTCDate();
+  const monthName = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()] ?? '';
+  return `${weekday} · ${dayNum} ${monthName}`;
+}
+
+type ListRow =
+  | { kind: 'header'; key: string; label: string }
+  | { kind: 'item'; key: string; viewing: Viewing };
+
+function buildRows(viewings: Viewing[], range: Range): ListRow[] {
+  if (range === 'today') {
+    return viewings.map((v) => ({ kind: 'item' as const, key: v.id, viewing: v }));
+  }
+  const rows: ListRow[] = [];
+  let currentKey: string | null = null;
+  for (const v of viewings) {
+    const k = dubaiDateKey(v.scheduledAt);
+    if (k !== currentKey) {
+      rows.push({ kind: 'header', key: `h-${k}`, label: dubaiDayLabel(v.scheduledAt) });
+      currentKey = k;
+    }
+    rows.push({ kind: 'item', key: v.id, viewing: v });
+  }
+  return rows;
+}
+
 export default function TodayScreen() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
@@ -43,12 +87,14 @@ export default function TodayScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useState<Range>('today');
 
-  async function load() {
+  async function load(rangeArg?: Range) {
+    const r = rangeArg ?? range;
     try {
       const [user, list] = await Promise.all([
         api<Me>('/auth/me'),
-        api<Viewing[]>('/field-agents/me/today'),
+        api<Viewing[]>(r === 'week' ? '/field-agents/me/today?range=week' : '/field-agents/me/today'),
       ]);
       setMe(user);
       setViewings(list);
@@ -62,10 +108,12 @@ export default function TodayScreen() {
   }
 
   useEffect(() => {
-    load();
-    const id = setInterval(load, 60_000);
+    load(range);
+    const id = setInterval(() => load(range), 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [range]);
+
+  const rows = buildRows(viewings, range);
 
   async function logout() {
     await clearToken();
@@ -95,21 +143,63 @@ export default function TodayScreen() {
         </Pressable>
       </View>
 
+      <View style={{ flexDirection: 'row', backgroundColor: '#E2E8F0', borderRadius: 8, padding: 2, marginBottom: 12 }}>
+        {(['today', 'week'] as Range[]).map((r) => {
+          const active = range === r;
+          return (
+            <Pressable
+              key={r}
+              onPress={() => setRange(r)}
+              style={{
+                flex: 1,
+                paddingVertical: 8,
+                borderRadius: 6,
+                backgroundColor: active ? 'white' : 'transparent',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ fontWeight: '700', color: active ? '#061D3F' : '#64748B', fontSize: 13 }}>
+                {r === 'today' ? 'Today' : 'This week'}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       {error ? <Text style={{ color: '#DC2626', marginBottom: 12 }}>{error}</Text> : null}
 
       <FlatList
-        data={viewings}
-        keyExtractor={(item) => item.id}
+        data={rows}
+        keyExtractor={(row) => row.key}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(range); }} />
         }
         ListEmptyComponent={
           <View style={{ alignItems: 'center', marginTop: 48 }}>
             <Ionicons name="calendar-clear-outline" color="#CBD5E1" size={48} />
-            <Text style={{ color: '#64748B', marginTop: 8 }}>No viewings scheduled today.</Text>
+            <Text style={{ color: '#64748B', marginTop: 8 }}>
+              {range === 'today' ? 'No viewings scheduled today.' : 'No viewings this week.'}
+            </Text>
           </View>
         }
-        renderItem={({ item }) => {
+        renderItem={({ item: row }) => {
+          if (row.kind === 'header') {
+            return (
+              <Text
+                style={{
+                  fontSize: 11,
+                  fontWeight: '700',
+                  color: '#475569',
+                  letterSpacing: 0.5,
+                  marginTop: 8,
+                  marginBottom: 6,
+                }}
+              >
+                {row.label}
+              </Text>
+            );
+          }
+          const item = row.viewing;
           const color = STATUS_COLOR[item.status] ?? '#64748B';
           return (
             <Pressable

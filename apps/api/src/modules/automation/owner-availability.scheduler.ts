@@ -35,6 +35,14 @@ export class OwnerAvailabilityScheduler {
   /** Daily at 10:00 Asia/Dubai (06:00 UTC). */
   @Cron('0 6 * * *', { name: 'owner-availability-sweep', timeZone: 'UTC' })
   async sweep(): Promise<void> {
+    // Disabled by default — the parser was producing too many false-positive
+    // updates and burning Claude tokens for low-value pings. Set
+    // OWNER_AVAILABILITY_SWEEP_ENABLED=true on the API .env to re-enable.
+    // The manual trigger endpoint stays live for ops debugging.
+    if (process.env.OWNER_AVAILABILITY_SWEEP_ENABLED !== 'true') {
+      this.logger.debug('Owner availability sweep disabled by env flag');
+      return;
+    }
     if (this.running) return;
     this.running = true;
     try {
