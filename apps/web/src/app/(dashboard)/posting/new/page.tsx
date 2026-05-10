@@ -20,7 +20,7 @@ interface PropertyRow {
   owner: { fullName: string } | null;
 }
 
-const READINESS_GATE = 60;
+const READINESS_GATE = 50;
 
 export default function NewPostPackagePage() {
   const router = useRouter();
@@ -70,8 +70,8 @@ export default function NewPostPackagePage() {
       </header>
 
       {error ? (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          <strong>Cannot generate:</strong> {error}
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 whitespace-pre-line">
+          <strong>Cannot generate:</strong>{'\n'}{error}
         </div>
       ) : null}
 

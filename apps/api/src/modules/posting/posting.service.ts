@@ -3,7 +3,13 @@ import { buildClickToChatUrl } from '@rentflow/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ContentService } from '../content/content.service';
 
-const READINESS_GATE = 60;
+/** Minimum readiness score before a Fast Posting package can be generated.
+ *  Lowered from 60 to 50 so small data gaps (no video, no commission policy
+ *  set yet) don't block listing — but properties with only a name still
+ *  fail. The error response now lists exactly which factors are missing
+ *  and their point values so ops can fix the right things instead of
+ *  guessing. */
+const READINESS_GATE = 50;
 
 @Injectable()
 export class PostingService {
@@ -132,12 +138,23 @@ export class PostingService {
   async generate(companyId: string, body: { propertyId: string; campaignId?: string; channelId?: string }) {
     const property = await this.prisma.property.findFirst({
       where: { id: body.propertyId, companyId, deletedAt: null },
+      include: { media: true },
     });
     if (!property) throw new NotFoundException('Property not found');
     if (property.readinessScore < READINESS_GATE) {
+      const missing = describeMissingReadinessFactors(property);
+      const lines = [
+        `Readiness ${property.readinessScore}/100 (mínimo ${READINESS_GATE} para publicar).`,
+        '',
+        'Lo que falta para llegar al mínimo:',
+        ...missing.map((m) => `  • +${m.points}  ${m.label}`),
+      ];
       throw new ConflictException({
         code: 'readiness_too_low',
-        message: `Property readiness ${property.readinessScore} is below the threshold ${READINESS_GATE}.`,
+        message: lines.join('\n'),
+        readinessScore: property.readinessScore,
+        threshold: READINESS_GATE,
+        missing,
       });
     }
 
@@ -490,4 +507,70 @@ export class PostingService {
     }
     return out;
   }
+}
+
+/** Mirrors the factor list inside ScoresService.recomputeReadiness. Kept
+ *  inline rather than imported so this module doesn't need a hard
+ *  dependency on ScoresService just to format an error. If you change
+ *  the weights or factors there, update the labels here too. */
+function describeMissingReadinessFactors(property: {
+  availabilityConfirmedAt: Date | null;
+  priceConfirmedAt: Date | null;
+  ownerId: string | null;
+  description: string | null;
+  commissionPolicy: string | null;
+  depositAed: { toString(): string } | null;
+  moveInDate: Date | null;
+  occupancyMax: number | null;
+  viewingAccess: string | null;
+  media: Array<{ kind: string }>;
+}): Array<{ key: string; points: number; label: string }> {
+  const within = (date: Date | null, days: number) =>
+    date ? Date.now() - date.getTime() <= days * 24 * 60 * 60 * 1000 : false;
+
+  const photos = property.media.filter((m) => m.kind !== 'video').length;
+  const hasVideo = property.media.some((m) => m.kind === 'video');
+
+  const missing: Array<{ key: string; points: number; label: string }> = [];
+  if (!within(property.availabilityConfirmedAt, 7)) {
+    missing.push({ key: 'availabilityFresh', points: 20, label: 'Confirmar disponibilidad reciente (toca "Confirmar disponibilidad" — vence cada 7 días)' });
+  }
+  if (!within(property.priceConfirmedAt, 14)) {
+    missing.push({ key: 'priceConfirmedFresh', points: 15, label: 'Confirmar precio reciente (toca "Confirmar precio" — vence cada 14 días)' });
+  }
+  if (photos < 3) {
+    missing.push({
+      key: 'hasPhotos',
+      points: photos === 0 ? 15 : 7,
+      label: photos === 0 ? 'Subir mínimo 3 fotos (0 actualmente)' : `Subir más fotos hasta llegar a 3 (${photos} actualmente, parcial)`,
+    });
+  }
+  if (!property.description) {
+    missing.push({ key: 'descriptionReady', points: 10, label: 'Escribir descripción del apartamento' });
+  }
+  if (!property.ownerId) {
+    missing.push({ key: 'ownerLinked', points: 10, label: 'Vincular Owner (dueño) en /owners' });
+  }
+  if (!hasVideo) {
+    missing.push({ key: 'hasVideo', points: 5, label: 'Subir un video corto (recorrido del apto)' });
+  }
+  if (!property.depositAed) {
+    missing.push({ key: 'depositClear', points: 5, label: 'Especificar el depósito reembolsable (AED)' });
+  }
+  if (!property.commissionPolicy) {
+    missing.push({ key: 'commissionClear', points: 5, label: 'Definir política de comisión' });
+  }
+  if (!property.moveInDate) {
+    missing.push({ key: 'moveInDateClear', points: 5, label: 'Indicar fecha de move-in disponible' });
+  }
+  if (!property.occupancyMax) {
+    missing.push({ key: 'occupancyRulesClear', points: 5, label: 'Indicar capacidad máxima de personas' });
+  }
+  if (!property.viewingAccess) {
+    missing.push({ key: 'viewingAccessConfirmed', points: 5, label: 'Confirmar cómo accede el field agent (llaves, lockbox, etc.)' });
+  }
+
+  // Sort by points descending so ops fixes the highest-value gaps first.
+  missing.sort((a, b) => b.points - a.points);
+  return missing;
 }
