@@ -81,8 +81,8 @@ export class PostingService {
     return placement;
   }
 
-  list(companyId: string) {
-    return this.prisma.postPackage.findMany({
+  async list(companyId: string) {
+    const packages = await this.prisma.postPackage.findMany({
       // Fast Posting Studio is for property listings only — channel-growth
       // campaigns live in their own admin page (/admin/growth-campaigns)
       // and have property=null which would crash this UI's pkg.property.code.
@@ -104,11 +104,33 @@ export class PostingService {
         },
         channel: true,
         trackingLink: true,
-        _count: { select: { leads: true } },
+        _count: { select: { leads: true, placements: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
+
+    // Augment with how many publishers are currently working on each
+    // package — the operational signal of "is this in active rotation
+    // right now" vs "just sitting there". Done as a single grouped query
+    // so we don't N+1 across 200 packages.
+    if (packages.length === 0) return packages;
+
+    const pendingByPackage = await this.prisma.postAssignment.groupBy({
+      by: ['postPackageId'],
+      where: {
+        companyId,
+        status: 'pending',
+        postPackageId: { in: packages.map((p) => p.id) },
+      },
+      _count: { _all: true },
+    });
+    const pendingMap = new Map(pendingByPackage.map((r) => [r.postPackageId, r._count._all]));
+
+    return packages.map((p) => ({
+      ...p,
+      pendingAssignmentsCount: pendingMap.get(p.id) ?? 0,
+    }));
   }
 
   async findById(companyId: string, id: string) {
