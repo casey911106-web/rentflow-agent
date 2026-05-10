@@ -11,7 +11,7 @@ import { MediaDownloader } from './media-downloader';
  * intercepts before the lead flow.
  */
 @Module({
-  imports: [forwardRef(() => WhatsAppModule), AIAgentModule, FilesModule],
+  imports: [forwardRef(() => WhatsAppModule), forwardRef(() => AIAgentModule), FilesModule],
   providers: [IngestionService, MediaDownloader],
   exports: [IngestionService],
 })
