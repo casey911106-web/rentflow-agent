@@ -26,7 +26,16 @@ export class AuthService {
 
     let ok = false;
     if (user.passwordHash === SEED_PASSWORD_SENTINEL) {
-      ok = password === SEED_PASSWORD_PLAIN;
+      // SECURITY: the sentinel mechanism only ever logs anyone in if it
+      // is allowed by env. In production it is disabled outright — a
+      // user whose passwordHash is still the seed sentinel is treated
+      // as having no valid password until an admin resets it via the
+      // reset-user-password script.
+      if (process.env.NODE_ENV === 'production' && process.env.ALLOW_SEED_LOGIN !== 'true') {
+        ok = false;
+      } else {
+        ok = password === SEED_PASSWORD_PLAIN;
+      }
     } else {
       try {
         ok = await bcrypt.compare(password, user.passwordHash);
