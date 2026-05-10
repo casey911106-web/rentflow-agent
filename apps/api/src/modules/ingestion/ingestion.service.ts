@@ -288,21 +288,15 @@ export class IngestionService {
       }
     }
 
-    if (!parsed.priceAed || !parsed.area) {
-      const missing: string[] = [];
-      if (!parsed.priceAed) missing.push('renta mensual (AED)');
-      if (!parsed.area) missing.push('zona (Marina, JBR, etc.)');
-      // Persist a stub session so the partner can reply with the missing data
-      // and we'll come back. For MVP, just ask and drop the buffer — the
-      // partner re-sends `/property` with the full info.
-      await this.reply(
-        companyId,
-        partnerPhoneE164,
-        `⚠️ Falta info: ${missing.join(', ')}. Manda /property otra vez con esos datos.`,
-        conversationId,
-      );
-      return;
-    }
+    // Don't reject when fields are missing — that forces the partner to
+    // re-send everything (photos and all). Instead we create the property
+    // anyway in `not_ready_to_post`, list the missing fields in the reply,
+    // and the partner edits them in /properties/<id> with one tap. The
+    // status gate prevents auto-publishing until the data is complete.
+    const missing: string[] = [];
+    if (!parsed.priceAed) missing.push('renta mensual (AED)');
+    if (!parsed.area) missing.push('zona (Marina, JBR, etc.)');
+    if (!parsed.type) missing.push('tipo (studio, 1 hab, master, etc.)');
 
     // Field-agent assignment priority:
     //  1. Slash command in this session (/Hamza) — strongest signal,
@@ -372,12 +366,14 @@ export class IngestionService {
     }
 
     const baseWeb = process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
-    const lines: string[] = [
-      `✓ Property ${property.code} creada (not_ready_to_post)`,
-      `Renta: AED ${Number(parsed.priceAed).toLocaleString()} / mes`,
-      `Zona: ${parsed.area}`,
-    ];
+    const headline = missing.length > 0
+      ? `⚠️ Property ${property.code} creada — falta info`
+      : `✓ Property ${property.code} creada (not_ready_to_post)`;
+    const lines: string[] = [headline];
+    lines.push(parsed.priceAed ? `Renta: AED ${Number(parsed.priceAed).toLocaleString()} / mes` : `Renta: ⚠️ falta`);
+    lines.push(parsed.area ? `Zona: ${parsed.area}` : `Zona: ⚠️ falta`);
     if (parsed.type) lines.push(`Tipo: ${this.humanType(parsed.type)}`);
+    else lines.push(`Tipo: ⚠️ falta`);
     if (parsed.occupancyMax) lines.push(`Sleeps: ${parsed.occupancyMax}`);
     if (assignedFieldAgentId) {
       const agent = await this.prisma.user.findUnique({
@@ -389,8 +385,15 @@ export class IngestionService {
       lines.push(`⚠️ Agente "${parsed.agentName}" no encontrado — asígnalo manualmente`);
     }
     lines.push(`Fotos/videos: ${session.pendingFileIds.length}`);
-    lines.push('');
-    lines.push(`Revisar: ${baseWeb}/properties/${property.id}`);
+    if (missing.length > 0) {
+      lines.push('');
+      lines.push(`Faltan estos campos: ${missing.join(', ')}`);
+      lines.push(`Edítalos aquí (no hace falta /property otra vez):`);
+    } else {
+      lines.push('');
+      lines.push(`Revisar:`);
+    }
+    lines.push(`${baseWeb}/properties/${property.id}`);
 
     await this.reply(companyId, partnerPhoneE164, lines.join('\n'), conversationId);
   }

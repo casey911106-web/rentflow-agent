@@ -111,6 +111,24 @@ export class LeadFollowupScheduler {
         continue;
       }
 
+      // Skip leads that already have a confirmed/assigned viewing inside
+      // the next 36h. They are not silent because they got distracted —
+      // they are silent because they already have an appointment with us.
+      // Sending another nudge here is the spam pattern we keep getting
+      // burned by ("Just checking in ahead of tomorrow's viewing").
+      const upcomingViewing = await this.prisma.viewing.findFirst({
+        where: {
+          leadId: lead.id,
+          status: { in: ['confirmed', 'assigned', 'rescheduled', 'requested'] },
+          scheduledAt: { gte: new Date(now), lte: new Date(now + 36 * 60 * 60 * 1000) },
+        },
+        select: { id: true, scheduledAt: true, status: true },
+      });
+      if (upcomingViewing) {
+        skipped++;
+        continue;
+      }
+
       // Measure tier from OUR last reply.
       const lastOutbound = await this.prisma.whatsAppMessage.findFirst({
         where: { conversationId: lead.whatsappConversation.id, direction: 'outbound' },
