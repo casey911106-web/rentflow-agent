@@ -31,6 +31,10 @@ interface Assignment {
   // Confirmed placements made WITHIN THIS assignment window (by the
   // current user, since `assignedAt`). Not a lifetime count.
   confirmedCount: number;
+  /** For channel_growth packages only — random photos pulled from the
+   *  company's property pool, deterministic per assignment. Lets agents
+   *  attach a real apartment photo to the FB/WA promo post. */
+  growthMedia?: Array<{ file: { id: string; mimeType: string } }>;
   postPackage: {
     id: string;
     title: string | null;
@@ -151,7 +155,9 @@ export default function TasksScreen() {
 function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
   const isGrowth = a.postPackage.kind === 'channel_growth';
   const prop = a.postPackage.property;
-  const photo = prop?.media?.[0]?.file;
+  // For growth tasks, pull the cover photo from the random pool stamped
+  // server-side. Otherwise use the property's first photo.
+  const photo = isGrowth ? a.growthMedia?.[0]?.file : prop?.media?.[0]?.file;
   const assignedAt = new Date(a.assignedAt);
   const windowEnd = new Date(assignedAt.getTime() + 60 * 60 * 1000); // 1h ideal window
   const hoursLeft = Math.max(0, Math.floor((new Date(a.expiresAt).getTime() - Date.now()) / 3_600_000));
@@ -187,7 +193,7 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
           </Text>
         </View>
       ) : null}
-      {!isGrowth && photo ? (
+      {photo ? (
         <Image
           source={{ uri: `${API_BASE}/public/files/${photo.id}` }}
           style={{ width: '100%', height: 160 }}
@@ -219,8 +225,10 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
 function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
   const isGrowth = a.postPackage.kind === 'channel_growth';
   const prop = a.postPackage.property;
-  const photo = prop?.media?.[0]?.file;
-  const allPhotos = prop?.media ?? [];
+  // Growth tasks use the random photo pool from the company's properties;
+  // listings use the property's own photos. Same shape, same UI.
+  const allPhotos = isGrowth ? (a.growthMedia ?? []) : (prop?.media ?? []);
+  const photo = allPhotos[0]?.file;
   const caption = a.postPackage.whatsappCaption ?? a.postPackage.shortCaption ?? prop?.name ?? '';
   const trackingShort = a.postPackage.trackingLink?.shortUrl ?? '';
   const headerCode = isGrowth ? '📣 GROW' : (prop?.code ?? '');
@@ -341,7 +349,8 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
       try {
         const url = `${API_BASE}/public/files/${m.file.id}`;
         const ext = m.file.mimeType.includes('png') ? 'png' : m.file.mimeType.includes('webp') ? 'webp' : 'jpg';
-        const localPath = `${FileSystem.cacheDirectory}${prop?.code}-${i + 1}.${ext}`;
+        const filePrefix = prop?.code ?? `growth-${a.id.slice(0, 6)}`;
+        const localPath = `${FileSystem.cacheDirectory}${filePrefix}-${i + 1}.${ext}`;
         const result = await FileSystem.downloadAsync(url, localPath);
         if (result.status === 200) {
           await MediaLibrary.saveToLibraryAsync(result.uri);
@@ -387,7 +396,7 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
         <Text style={{ fontSize: 18, fontWeight: '700', color: '#061D3F' }}>{headerCode}</Text>
         <Text style={{ color: '#64748B' }}>{headerName}</Text>
 
-        {!isGrowth && photo ? (
+        {photo ? (
           <Image
             source={{ uri: `${API_BASE}/public/files/${photo.id}` }}
             style={{ width: '100%', height: 220, borderRadius: 8, marginTop: 12 }}
@@ -402,7 +411,7 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
           >
             <Text style={{ color: 'white', fontWeight: '700' }}>Share caption</Text>
           </Pressable>
-          {!isGrowth ? (
+          {allPhotos.length > 0 ? (
             <Pressable
               onPress={downloadPhotos}
               disabled={downloading}

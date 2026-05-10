@@ -69,7 +69,32 @@ export class PlacementsService {
       ),
     );
 
-    return assignments.map((a, i) => ({ ...a, confirmedCount: counts[i] ?? 0 }));
+    // Channel-growth packages have no Property of their own. Without an
+    // image the FB/WA group post would scroll past unnoticed, so we inject
+    // a small set of random property photos per assignment. The pick is
+    // deterministic on assignmentId so the same agent sees the same photos
+    // every time they reload the task — but different assignments get
+    // different photos.
+    const growthIdxs = assignments
+      .map((a, i) => (a.postPackage.kind === 'channel_growth' ? i : -1))
+      .filter((i) => i !== -1);
+    let growthPool: Array<{ file: { id: string; mimeType: string } }> = [];
+    if (growthIdxs.length > 0) {
+      const media = await this.prisma.propertyMedia.findMany({
+        where: { kind: 'photo', property: { companyId, deletedAt: null } },
+        select: { file: { select: { id: true, mimeType: true } } },
+        take: 100,
+      });
+      growthPool = media;
+    }
+
+    return assignments.map((a, i) => {
+      const base = { ...a, confirmedCount: counts[i] ?? 0 };
+      if (a.postPackage.kind === 'channel_growth' && growthPool.length > 0) {
+        return { ...base, growthMedia: pickStableSubset(growthPool, 5, a.id) };
+      }
+      return base;
+    });
   }
 
   /** All placements for a PostPackage. */
@@ -375,4 +400,24 @@ export class PlacementsService {
       // Rank by leads first (real conversions), tiebreak on clicks.
       .sort((a, b) => (b.attributedLeads - a.attributedLeads) || (b.totalClicks - a.totalClicks));
   }
+}
+
+/** Deterministic shuffle: each item is scored by hash(seed:index) and the
+ *  list is sorted by that score. Same seed → same order; different seeds
+ *  → different orderings. Used to pick a stable random photo subset per
+ *  assignment without persisting anything. */
+function pickStableSubset<T>(items: T[], count: number, seed: string): T[] {
+  return items
+    .map((item, i) => ({ item, h: simpleHash(`${seed}:${i}`) }))
+    .sort((a, b) => a.h - b.h)
+    .slice(0, count)
+    .map((x) => x.item);
+}
+
+function simpleHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return h;
 }
