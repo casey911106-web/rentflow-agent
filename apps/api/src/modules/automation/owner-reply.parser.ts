@@ -26,10 +26,31 @@ export class OwnerReplyParser {
     fromE164: string;
     body: string;
   }): Promise<boolean> {
+    // Slash commands (`/property`, `/done`, `/<AgentName>`, etc.) are
+    // partner-ingestion semantics. Even if the sender's phone happens to
+    // also be registered as an Owner with a pending availability check,
+    // a slash-prefixed message should NEVER be parsed as an owner reply.
+    if (input.body.trim().startsWith('/')) return false;
+
     const owner = await this.prisma.owner.findFirst({
       where: { companyId: input.companyId, phoneE164: input.fromE164, deletedAt: null },
     });
     if (!owner) return false;
+
+    // Partner-User takes priority over Owner: if this phone is also a
+    // registered partner, route through the partner flow downstream
+    // instead of consuming the message as an owner reply.
+    const partner = await this.prisma.user.findFirst({
+      where: {
+        companyId: input.companyId,
+        isPartner: true,
+        phoneE164: input.fromE164,
+        deletedAt: null,
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    if (partner) return false;
 
     const pending = await this.prisma.ownerAvailabilityCheck.findFirst({
       where: { ownerId: owner.id, status: 'pending_response' },
