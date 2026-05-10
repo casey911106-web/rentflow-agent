@@ -39,9 +39,18 @@ export class PlacementsScheduler {
   @Cron(CronExpression.EVERY_HOUR, { name: 'placements-round-robin' })
   async tick(): Promise<void> {
     if (this.running) return;
+    // Dubai working hours: 9am–10pm local (UTC+4, no DST). We never want
+    // to wake up a publisher at 3am with a posting task, even if they
+    // technically have an idle slot. Expiry still runs so overdue
+    // assignments get marked expired even outside hours.
+    const dubaiHour = (new Date().getUTCHours() + 4) % 24;
+    const inDubaiWindow = dubaiHour >= 9 && dubaiHour < 22;
     this.running = true;
     try {
       await this.expireOld();
+      if (!inDubaiWindow) {
+        return;
+      }
       const result = await this.assignNext();
       if (result.assigned > 0) {
         this.logger.log(

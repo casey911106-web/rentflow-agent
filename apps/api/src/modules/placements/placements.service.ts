@@ -13,9 +13,12 @@ interface CreatePlacementDto {
 export class PlacementsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Pending assignments for the current user. */
+  /** Pending assignments for the current user. The `confirmedCount` is
+   *  scoped to THIS assignment window (placements by this user since the
+   *  assignment was created) — not a lifetime count. A field agent
+   *  reassigned to a popular package must publish 3 NEW times to fulfil. */
   async listMyAssignments(userId: string, companyId: string) {
-    return this.prisma.postAssignment.findMany({
+    const assignments = await this.prisma.postAssignment.findMany({
       where: { assigneeUserId: userId, companyId, status: 'pending' },
       orderBy: { assignedAt: 'desc' },
       include: {
@@ -41,11 +44,28 @@ export class PlacementsService {
               },
             },
             trackingLink: { select: { shortUrl: true, whatsappUrl: true } },
-            _count: { select: { placements: true } },
           },
         },
       },
     });
+
+    if (assignments.length === 0) return [];
+
+    const counts = await Promise.all(
+      assignments.map((a) =>
+        this.prisma.postPlacement.count({
+          where: {
+            companyId,
+            postPackageId: a.postPackageId,
+            publisherUserId: userId,
+            removedAt: null,
+            confirmedAt: { gte: a.assignedAt },
+          },
+        }),
+      ),
+    );
+
+    return assignments.map((a, i) => ({ ...a, confirmedCount: counts[i] ?? 0 }));
   }
 
   /** All placements for a PostPackage. */
@@ -232,13 +252,17 @@ export class PlacementsService {
     });
     if (!assignment) throw new NotFoundException('Assignment not found or already closed');
 
+    // Count only placements made WITHIN THIS assignment window — not the
+    // user's lifetime placements for this package. Otherwise a publisher
+    // reassigned to a popular package could mark 'complete' instantly with
+    // zero new posts, since their old placements would still be on the row.
     const count = await this.prisma.postPlacement.count({
       where: {
         companyId,
         postPackageId: assignment.postPackageId,
         publisherUserId: userId,
         removedAt: null,
-        confirmedAt: { not: null },
+        confirmedAt: { gte: assignment.assignedAt },
       },
     });
     if (count < minPlacements) {

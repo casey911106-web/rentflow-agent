@@ -148,15 +148,16 @@ export class PostingService {
     const postCode = await this.uniquePostCode();
     const whatsappUrl = buildClickToChatUrl({ propertyCode: sourceCode, postCode, waMeBaseUrl: waBase });
 
-    const priceLine = property.priceAed ? `AED ${property.priceAed.toString()} / month` : '';
-    const availabilityLine = property.status === 'available' ? 'Available now' : 'Availability TBC';
-    const shortCaption = `${property.name} — ${priceLine}. ${availabilityLine}.`;
-    const longCaption =
-      `${property.name} in ${property.area ?? 'Dubai'}. ${priceLine}. ${availabilityLine}. ` +
-      `Wifi, AC, cleaning. Walking distance to Metro. WhatsApp ${waLocal} for viewing.`;
-    const whatsappCaption = `🏠 ${property.name}\n${priceLine}\n📍 ${property.area ?? '—'}\nWA: ${waLocal}\nCode: ${sourceCode}`;
-    const facebookCaption =
-      `${property.name}\n${property.area ?? '—'} | ${priceLine}\nFurnished, wifi included.\nMessage on WhatsApp: ${whatsappUrl}`;
+    const captions = this.buildCaptions({
+      propertyName: property.name,
+      propertyArea: property.area,
+      propertyCode: sourceCode,
+      priceAed: property.priceAed ? property.priceAed.toString() : null,
+      isAvailable: property.status === 'available',
+      whatsappUrl,
+      waLocal,
+    });
+    const { priceLine, availabilityLine, shortCaption, longCaption, whatsappCaption, facebookCaption } = captions;
 
     const pkg = await this.prisma.postPackage.create({
       data: {
@@ -254,6 +255,94 @@ export class PostingService {
         publishedAt: new Date(),
       },
     });
+  }
+
+  /** Rebuild captions for every active PostPackage tied to a Property
+   *  whenever its source data (price, name, area, status) changes. Skips
+   *  packages the user explicitly froze (paused/archived) so manual edits
+   *  aren't clobbered. Returns the count of packages updated. */
+  async regenerateForProperty(companyId: string, propertyId: string): Promise<number> {
+    const property = await this.prisma.property.findFirst({
+      where: { id: propertyId, companyId, deletedAt: null },
+    });
+    if (!property) return 0;
+
+    const packages = await this.prisma.postPackage.findMany({
+      where: {
+        companyId,
+        propertyId,
+        deletedAt: null,
+        status: { notIn: ['archived', 'paused'] },
+      },
+      include: { trackingLink: { select: { postCode: true } } },
+    });
+    if (packages.length === 0) return 0;
+
+    const setting = await this.prisma.appSetting.findFirst({
+      where: { companyId, key: 'whatsapp.business_number' },
+    });
+    const waBase =
+      (setting?.value as { waMeBase?: string } | undefined)?.waMeBase ??
+      process.env.WHATSAPP_BUSINESS_WA_ME_BASE_URL ??
+      'https://wa.me/971585063316';
+    const waLocal =
+      (setting?.value as { local?: string } | undefined)?.local ??
+      process.env.WHATSAPP_BUSINESS_PHONE_LOCAL ??
+      '0585063316';
+
+    let updated = 0;
+    for (const pkg of packages) {
+      if (!pkg.trackingLink) continue;
+      const whatsappUrl = buildClickToChatUrl({
+        propertyCode: property.code,
+        postCode: pkg.trackingLink.postCode,
+        waMeBaseUrl: waBase,
+      });
+      const captions = this.buildCaptions({
+        propertyName: property.name,
+        propertyArea: property.area,
+        propertyCode: property.code,
+        priceAed: property.priceAed ? property.priceAed.toString() : null,
+        isAvailable: property.status === 'available',
+        whatsappUrl,
+        waLocal,
+      });
+      await this.prisma.postPackage.update({
+        where: { id: pkg.id },
+        data: {
+          title: property.name,
+          shortCaption: captions.shortCaption,
+          longCaption: captions.longCaption,
+          whatsappCaption: captions.whatsappCaption,
+          facebookCaption: captions.facebookCaption,
+          priceLine: captions.priceLine,
+          availabilityLine: captions.availabilityLine,
+        },
+      });
+      updated++;
+    }
+    return updated;
+  }
+
+  private buildCaptions(input: {
+    propertyName: string;
+    propertyArea: string | null;
+    propertyCode: string;
+    priceAed: string | null;
+    isAvailable: boolean;
+    whatsappUrl: string;
+    waLocal: string;
+  }) {
+    const priceLine = input.priceAed ? `AED ${input.priceAed} / month` : '';
+    const availabilityLine = input.isAvailable ? 'Available now' : 'Availability TBC';
+    const shortCaption = `${input.propertyName} — ${priceLine}. ${availabilityLine}.`;
+    const longCaption =
+      `${input.propertyName} in ${input.propertyArea ?? 'Dubai'}. ${priceLine}. ${availabilityLine}. ` +
+      `Wifi, AC, cleaning. Walking distance to Metro. WhatsApp ${input.waLocal} for viewing.`;
+    const whatsappCaption = `🏠 ${input.propertyName}\n${priceLine}\n📍 ${input.propertyArea ?? '—'}\nWA: ${input.waLocal}\nCode: ${input.propertyCode}`;
+    const facebookCaption =
+      `${input.propertyName}\n${input.propertyArea ?? '—'} | ${priceLine}\nFurnished, wifi included.\nMessage on WhatsApp: ${input.whatsappUrl}`;
+    return { priceLine, availabilityLine, shortCaption, longCaption, whatsappCaption, facebookCaption };
   }
 
   private async uniquePostCode(): Promise<string> {

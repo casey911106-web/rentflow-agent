@@ -31,6 +31,23 @@ export class InboundRouter {
    * 4. If the conversation has no Lead yet, create one with attribution.
    */
   async route(msg: InboundMessage): Promise<{ leadId?: string; conversationId: string; messageId: string }> {
+    // Early idempotency on Meta's wamid: when our endpoint times out or
+    // Meta double-delivers, the same message arrives twice. Without this
+    // guard the operator handler, owner-reply parser, and partner ingestion
+    // would re-fire — clicking suggestion buttons twice, parsing the same
+    // owner availability twice, processing /property twice. The
+    // WhatsAppMessage row is the source of truth for "have we seen this".
+    if (msg.externalId) {
+      const seen = await this.prisma.whatsAppMessage.findUnique({
+        where: { externalId: msg.externalId },
+        select: { id: true, conversationId: true },
+      });
+      if (seen) {
+        this.logger.debug(`Duplicate inbound ignored (wamid=${msg.externalId})`);
+        return { conversationId: seen.conversationId, messageId: seen.id };
+      }
+    }
+
     const company = await this.resolveCompany(msg.toBusinessNumber);
     if (!company) {
       this.logger.warn(`No company resolved for business number ${msg.toBusinessNumber}; dropping message.`);

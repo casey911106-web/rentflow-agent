@@ -28,6 +28,9 @@ interface Assignment {
   status: string;
   expiresAt: string;
   assignedAt: string;
+  // Confirmed placements made WITHIN THIS assignment window (by the
+  // current user, since `assignedAt`). Not a lifetime count.
+  confirmedCount: number;
   postPackage: {
     id: string;
     title: string | null;
@@ -42,7 +45,6 @@ interface Assignment {
       media: Array<{ file: { id: string; mimeType: string } }>;
     } | null;
     trackingLink: { shortUrl: string; whatsappUrl: string } | null;
-    _count: { placements: number };
   };
 }
 
@@ -184,7 +186,7 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
           </Text>
         </View>
         <Text style={{ color: '#94A3B8', fontSize: 11, marginTop: 4 }}>
-          {a.postPackage._count.placements} of {MIN_PLACEMENTS} placements logged · tap to publish
+          {a.confirmedCount} of {MIN_PLACEMENTS} placements logged · tap to publish
         </Text>
       </View>
     </Pressable>
@@ -217,8 +219,15 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
     loadPlacements();
   }, []);
 
+  // Drafts are always live (created in this session). Confirmed posts are
+  // only counted toward THIS assignment if they were confirmed after the
+  // assignment was created — past placements from prior assignments don't
+  // pre-fill the 3/3 quota.
+  const assignedAtMs = new Date(a.assignedAt).getTime();
   const drafts = placements.filter((p) => p.confirmedAt === null);
-  const confirmed = placements.filter((p) => p.confirmedAt !== null);
+  const confirmed = placements.filter(
+    (p) => p.confirmedAt !== null && new Date(p.confirmedAt).getTime() >= assignedAtMs,
+  );
   const confirmedCount = confirmed.length;
   const canComplete = confirmedCount >= MIN_PLACEMENTS;
 

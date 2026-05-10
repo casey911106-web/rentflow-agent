@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma, PropertyStatus, PropertyType } from '@rentflow/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FilesService } from '../files/files.service';
+import { PostingService } from '../posting/posting.service';
 
 export interface CreatePropertyInput {
   name: string;
@@ -16,9 +17,12 @@ export interface CreatePropertyInput {
 
 @Injectable()
 export class PropertiesService {
+  private readonly logger = new Logger(PropertiesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
+    private readonly posting: PostingService,
   ) {}
 
   async list(companyId: string, filter: { status?: PropertyStatus; q?: string } = {}) {
@@ -118,7 +122,18 @@ export class PropertiesService {
 
   async update(companyId: string, id: string, data: Prisma.PropertyUpdateInput) {
     await this.findById(companyId, id);
-    return this.prisma.property.update({ where: { id }, data });
+    const property = await this.prisma.property.update({ where: { id }, data });
+    // Re-render every active Fast Posting tied to this property so the
+    // next batch of placements goes out with the edited price/name/area.
+    // Frozen packages (paused/archived) are skipped inside the helper.
+    try {
+      await this.posting.regenerateForProperty(companyId, id);
+    } catch (err) {
+      this.logger.error(
+        `Failed to regenerate captions after Property ${id} update: ${(err as Error).message}`,
+      );
+    }
+    return property;
   }
 
   async softDelete(companyId: string, id: string) {
