@@ -36,6 +36,10 @@ interface Assignment {
     title: string | null;
     shortCaption: string | null;
     whatsappCaption: string | null;
+    kind: 'property_listing' | 'channel_growth';
+    growthTargetUrl: string | null;
+    growthTargetLabel: string | null;
+    growthTargetKind: string | null;
     property: {
       id: string;
       code: string;
@@ -145,11 +149,20 @@ export default function TasksScreen() {
 }
 
 function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
+  const isGrowth = a.postPackage.kind === 'channel_growth';
   const prop = a.postPackage.property;
   const photo = prop?.media?.[0]?.file;
   const assignedAt = new Date(a.assignedAt);
   const windowEnd = new Date(assignedAt.getTime() + 60 * 60 * 1000); // 1h ideal window
   const hoursLeft = Math.max(0, Math.floor((new Date(a.expiresAt).getTime() - Date.now()) / 3_600_000));
+
+  const headline = isGrowth
+    ? (a.postPackage.title ?? 'Grow our channel')
+    : `${prop?.code ?? '?'} — ${prop?.name ?? ''}`;
+  const sub = isGrowth
+    ? (a.postPackage.growthTargetLabel ?? 'Channel growth')
+    : (prop?.area ?? '');
+
   return (
     <Pressable
       onPress={onOpen}
@@ -158,13 +171,23 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
         borderRadius: 12,
         marginBottom: 12,
         overflow: 'hidden',
+        borderLeftWidth: isGrowth ? 4 : 0,
+        borderLeftColor: '#7C3AED',
         shadowColor: '#0F172A',
         shadowOpacity: 0.06,
         shadowRadius: 8,
         elevation: 1,
       }}
     >
-      {photo ? (
+      {isGrowth ? (
+        <View style={{ backgroundColor: '#F5F3FF', paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Ionicons name="megaphone" size={14} color="#7C3AED" />
+          <Text style={{ fontSize: 11, color: '#5B21B6', fontWeight: '700', letterSpacing: 0.5 }}>
+            GROW CHANNEL
+          </Text>
+        </View>
+      ) : null}
+      {!isGrowth && photo ? (
         <Image
           source={{ uri: `${API_BASE}/public/files/${photo.id}` }}
           style={{ width: '100%', height: 160 }}
@@ -173,12 +196,12 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
       ) : null}
       <View style={{ padding: 14 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-          <Text style={{ fontWeight: '700', color: '#061D3F', flex: 1 }}>{prop?.code} — {prop?.name}</Text>
+          <Text style={{ fontWeight: '700', color: '#061D3F', flex: 1 }}>{headline}</Text>
           <Text style={{ fontSize: 11, color: hoursLeft < 6 ? '#DC2626' : '#64748B', fontWeight: '600' }}>
             {hoursLeft}h left
           </Text>
         </View>
-        <Text style={{ color: '#64748B', fontSize: 12 }}>{prop?.area}</Text>
+        <Text style={{ color: '#64748B', fontSize: 12 }}>{sub}</Text>
         <View style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Ionicons name="time-outline" size={14} color="#0F766E" />
           <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '600' }}>
@@ -194,11 +217,16 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
 }
 
 function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
+  const isGrowth = a.postPackage.kind === 'channel_growth';
   const prop = a.postPackage.property;
   const photo = prop?.media?.[0]?.file;
   const allPhotos = prop?.media ?? [];
   const caption = a.postPackage.whatsappCaption ?? a.postPackage.shortCaption ?? prop?.name ?? '';
   const trackingShort = a.postPackage.trackingLink?.shortUrl ?? '';
+  const headerCode = isGrowth ? '📣 GROW' : (prop?.code ?? '');
+  const headerName = isGrowth
+    ? (a.postPackage.title ?? a.postPackage.growthTargetLabel ?? 'Channel growth')
+    : (prop?.name ?? '');
 
   const [generating, setGenerating] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -356,10 +384,10 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 64 }}>
-        <Text style={{ fontSize: 18, fontWeight: '700', color: '#061D3F' }}>{prop?.code}</Text>
-        <Text style={{ color: '#64748B' }}>{prop?.name}</Text>
+        <Text style={{ fontSize: 18, fontWeight: '700', color: '#061D3F' }}>{headerCode}</Text>
+        <Text style={{ color: '#64748B' }}>{headerName}</Text>
 
-        {photo ? (
+        {!isGrowth && photo ? (
           <Image
             source={{ uri: `${API_BASE}/public/files/${photo.id}` }}
             style={{ width: '100%', height: 220, borderRadius: 8, marginTop: 12 }}
@@ -374,18 +402,20 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
           >
             <Text style={{ color: 'white', fontWeight: '700' }}>Share caption</Text>
           </Pressable>
-          <Pressable
-            onPress={downloadPhotos}
-            disabled={downloading}
-            style={{ flex: 1, backgroundColor: downloading ? '#94A3B8' : '#0F766E', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
-          >
-            <Ionicons name="download-outline" color="white" size={18} />
-            <Text style={{ color: 'white', fontWeight: '700' }}>
-              {downloading
-                ? `Saving ${downloadProgress}/${Math.min(5, allPhotos.length)}…`
-                : `Save ${Math.min(5, allPhotos.length)} photos`}
-            </Text>
-          </Pressable>
+          {!isGrowth ? (
+            <Pressable
+              onPress={downloadPhotos}
+              disabled={downloading}
+              style={{ flex: 1, backgroundColor: downloading ? '#94A3B8' : '#0F766E', padding: 14, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+            >
+              <Ionicons name="download-outline" color="white" size={18} />
+              <Text style={{ color: 'white', fontWeight: '700' }}>
+                {downloading
+                  ? `Saving ${downloadProgress}/${Math.min(5, allPhotos.length)}…`
+                  : `Save ${Math.min(5, allPhotos.length)} photos`}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <Text style={{ color: '#475569', fontSize: 12, textTransform: 'uppercase', marginTop: 16 }}>

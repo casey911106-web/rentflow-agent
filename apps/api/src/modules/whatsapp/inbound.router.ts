@@ -253,7 +253,7 @@ export class InboundRouter {
       if (tracking && tracking.companyId === companyId) {
         trackingLinkId = tracking.id;
         postPackageId = tracking.postPackageId;
-        propertyId = propertyId ?? tracking.postPackage.propertyId;
+        propertyId = propertyId ?? tracking.postPackage.propertyId ?? undefined;
         attributionConfidence = propertyCode ? 'high' : 'medium';
       }
     }
@@ -275,7 +275,7 @@ export class InboundRouter {
         attributionPlacementId = placement.id;
         attributionSource = placement.channelKind ?? placement.channelName ?? undefined;
         postPackageId = postPackageId ?? placement.postPackage.id;
-        propertyId = propertyId ?? placement.postPackage.propertyId;
+        propertyId = propertyId ?? placement.postPackage.propertyId ?? undefined;
         attributionConfidence = 'high';
       }
     }

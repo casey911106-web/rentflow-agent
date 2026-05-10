@@ -105,6 +105,8 @@ export class PlacementsScheduler {
         select: {
           id: true,
           title: true,
+          kind: true,
+          growthTargetLabel: true,
           property: { select: { code: true, name: true } },
           _count: { select: { placements: true } },
         },
@@ -175,22 +177,29 @@ export class PlacementsScheduler {
           },
         });
 
+        const isGrowth = target.kind === 'channel_growth';
         const propCode = target.property?.code ?? '?';
         const propName = target.property?.name ?? target.title ?? '';
+        const notifTitle = isGrowth
+          ? `Grow channel — ${target.growthTargetLabel ?? target.title ?? 'our channel'}`
+          : `Publish task — ${propCode}`;
+        const notifBody = isGrowth
+          ? `Post the channel-growth promo on as many groups as you can to drive followers to ${target.growthTargetLabel ?? 'our channel'}. 24h to log placements.`
+          : `Post ${propCode} ${propName} on as many groups as you can. You have 24h to log placements.`;
         await this.prisma.notification.create({
           data: {
             companyId: company.id,
             userId: pub.id,
             kind: 'info',
-            title: `Publish task — ${propCode}`,
-            body: `Post ${propCode} ${propName} on as many groups as you can. You have 24h to log placements.`,
+            title: notifTitle,
+            body: notifBody,
             link: `/posting/${target.id}`,
           },
         });
         // Push to mobile so the agent doesn't have to open the app to find out.
         this.push.notifyPublishingTaskAssigned(pub.id, {
-          propertyCode: propCode,
-          propertyName: propName,
+          propertyCode: isGrowth ? 'GROW' : propCode,
+          propertyName: isGrowth ? (target.growthTargetLabel ?? target.title ?? 'channel growth') : propName,
           assignmentId: assignment.id,
         });
 
@@ -198,10 +207,13 @@ export class PlacementsScheduler {
         if (pub.phoneE164) {
           const windowOpen = await this.has24hWindow(company.id, pub.phoneE164);
           if (windowOpen) {
+            const waBody = isGrowth
+              ? `📣 New channel-growth task: ${target.growthTargetLabel ?? target.title}. Post in your groups to grow followers. 24h.`
+              : `📌 New publish task: ${propCode} (${propName}). You have 24h. Log every group/page you post on so we can score your reach.`;
             try {
               await this.waAdapter.adapter.sendText({
                 to: pub.phoneE164,
-                body: `📌 New publish task: ${propCode} (${propName}). You have 24h. Log every group/page you post on so we can score your reach.`,
+                body: waBody,
                 conversationId: `internal:${pub.id}`,
               });
               notifiedViaWhatsApp++;

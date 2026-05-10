@@ -29,6 +29,10 @@ export class PlacementsService {
             shortCaption: true,
             whatsappCaption: true,
             status: true,
+            kind: true,
+            growthTargetUrl: true,
+            growthTargetLabel: true,
+            growthTargetKind: true,
             property: {
               select: {
                 id: true,

@@ -27,6 +27,9 @@ export class PostingService {
     channelId: string,
   ) {
     const pkg = await this.findById(companyId, packageId);
+    if (!pkg.propertyId) {
+      throw new BadRequestException('Auto-caption is only available for property listings');
+    }
     return this.content.generateCaption({ propertyId: pkg.propertyId, channelId });
   }
 
@@ -44,6 +47,9 @@ export class PostingService {
     const pkg = await this.findById(companyId, packageId);
     if (!args.caption?.trim()) {
       throw new BadRequestException('caption is required');
+    }
+    if (!pkg.propertyId) {
+      throw new BadRequestException('Auto-publish via owned channels is only available for property listings');
     }
     const placement = await this.content.publish({
       propertyId: pkg.propertyId,
@@ -344,6 +350,105 @@ export class PostingService {
       `${input.propertyName}\n${input.propertyArea ?? '—'} | ${priceLine}\nFurnished, wifi included.\nMessage on WhatsApp: ${input.whatsappUrl}`;
     return { priceLine, availabilityLine, shortCaption, longCaption, whatsappCaption, facebookCaption };
   }
+
+  // ===========================================================================
+  // CHANNEL GROWTH — promote our own channels (Telegram / FB page / IG / etc.)
+  // ===========================================================================
+
+  /** Create a channel-growth PostPackage. No Property is involved; the
+   *  tracking link redirects directly to `targetUrl` (the channel join URL).
+   *  Once created the package enters the same round-robin pool as property
+   *  listings so field agents post it in their groups. */
+  async createGrowthCampaign(
+    companyId: string,
+    body: {
+      title: string;
+      caption: string;
+      targetUrl: string;
+      targetLabel: string;
+      targetKind?: string; // 'telegram' | 'facebook_page' | 'instagram' | 'whatsapp_community' | 'other'
+    },
+  ) {
+    if (!body.title?.trim()) throw new BadRequestException('title is required');
+    if (!body.caption?.trim()) throw new BadRequestException('caption is required');
+    if (!body.targetUrl?.trim()) throw new BadRequestException('targetUrl is required');
+    if (!body.targetLabel?.trim()) throw new BadRequestException('targetLabel is required');
+    try {
+      // eslint-disable-next-line no-new
+      new URL(body.targetUrl);
+    } catch {
+      throw new BadRequestException('targetUrl must be a valid URL');
+    }
+
+    const sourceCode = `GROW-${this.randomBase32(5)}`;
+    const postCode = await this.uniquePostCode();
+
+    const pkg = await this.prisma.postPackage.create({
+      data: {
+        companyId,
+        kind: 'channel_growth',
+        // Skip readiness/approval flow — the post is hand-crafted by ops.
+        status: 'approved',
+        title: body.title.trim(),
+        // Same caption fields the mobile already reads (shortCaption /
+        // whatsappCaption / facebookCaption). We surface the same string
+        // everywhere so the agent sees the exact text to publish.
+        shortCaption: body.caption.trim(),
+        whatsappCaption: body.caption.trim(),
+        facebookCaption: body.caption.trim(),
+        longCaption: body.caption.trim(),
+        growthTargetUrl: body.targetUrl.trim(),
+        growthTargetLabel: body.targetLabel.trim(),
+        growthTargetKind: body.targetKind?.trim() || 'other',
+        approvedAt: new Date(),
+        trackingLink: {
+          create: {
+            companyId,
+            sourceCode,
+            postCode,
+            shortUrl: `${process.env.TRACKING_BASE_URL ?? 'http://localhost:3001/t'}/${postCode}`,
+            // For growth packages whatsappUrl is the redirect target —
+            // tracking controller routes here when kind=channel_growth.
+            whatsappUrl: body.targetUrl.trim(),
+          },
+        },
+      },
+      include: { trackingLink: true },
+    });
+
+    return pkg;
+  }
+
+  /** All non-archived growth campaigns with click totals. */
+  async listGrowthCampaigns(companyId: string) {
+    return this.prisma.postPackage.findMany({
+      where: {
+        companyId,
+        kind: 'channel_growth',
+        deletedAt: null,
+        status: { not: 'archived' },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        trackingLink: { select: { shortUrl: true, postCode: true, clicks: true } },
+        _count: { select: { placements: true, assignments: true } },
+      },
+    });
+  }
+
+  /** Archive a growth campaign — pulls it out of the round-robin pool. */
+  async archiveGrowthCampaign(companyId: string, packageId: string) {
+    const pkg = await this.prisma.postPackage.findFirst({
+      where: { id: packageId, companyId, kind: 'channel_growth', deletedAt: null },
+    });
+    if (!pkg) throw new NotFoundException('Growth campaign not found');
+    return this.prisma.postPackage.update({
+      where: { id: packageId },
+      data: { status: 'archived', archivedAt: new Date() },
+    });
+  }
+
+  // ===========================================================================
 
   private async uniquePostCode(): Promise<string> {
     const prefix = process.env.POST_CODE_PREFIX ?? 'POST';

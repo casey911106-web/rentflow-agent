@@ -23,7 +23,15 @@ export class TrackingController {
   ) {
     const link = await this.prisma.trackingLink.findUnique({
       where: { postCode },
-      include: { postPackage: { select: { property: { select: { code: true } } } } },
+      include: {
+        postPackage: {
+          select: {
+            kind: true,
+            growthTargetUrl: true,
+            property: { select: { code: true } },
+          },
+        },
+      },
     });
     if (!link) throw new NotFoundException('Unknown tracking link');
     await this.prisma.trackingLink.update({
@@ -32,6 +40,20 @@ export class TrackingController {
     });
 
     const slug = (rawSlug ?? '').replace(/[^A-Z0-9]/gi, '').slice(0, 16);
+
+    // Channel-growth packages redirect straight to the channel join URL.
+    // No marketplace page in between, so the per-placement click beacon
+    // (/track/click/:slug) never fires — we attribute the slug click here.
+    if (link.postPackage?.kind === 'channel_growth') {
+      if (slug) {
+        await this.prisma.postPlacement.updateMany({
+          where: { trackingSlug: slug },
+          data: { clicks: { increment: 1 }, lastClickAt: new Date() },
+        });
+      }
+      const target = link.postPackage.growthTargetUrl ?? link.whatsappUrl;
+      return res.redirect(302, target);
+    }
 
     const marketplaceBase =
       process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';

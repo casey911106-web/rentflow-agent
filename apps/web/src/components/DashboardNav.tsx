@@ -50,6 +50,7 @@ const NAV: NavItem[] = [
   { href: '/issues',       label: 'Issues',       icon: <AlertTriangle size={18} />,  roles: ALL_ROLES },
   { href: '/posting',      label: 'Fast Posting', icon: <Megaphone size={18} />,      roles: ADMIN_OPS },
   { href: '/admin/publishing', label: 'Publishing', icon: <BarChart3 size={18} />,    roles: ADMIN_OPS },
+  { href: '/admin/growth-campaigns', label: 'Channel Growth', icon: <Megaphone size={18} />, roles: ADMIN_OPS },
   { href: '/deals',        label: 'Deals',        icon: <Wallet size={18} />,         roles: ADMIN_OPS },
   { href: '/analytics',    label: 'Analytics',    icon: <BarChart3 size={18} />,      roles: ADMIN_OPS },
   { href: '/how-it-works', label: 'How it works', icon: <HelpCircle size={18} />,     roles: ALL_ROLES },
