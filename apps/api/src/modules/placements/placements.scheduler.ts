@@ -5,7 +5,16 @@ import { PushService } from '../notifications/push.service';
 import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 
 const MAX_ACTIVE_PER_PUBLISHER = 3; // cap inflight tasks per person
-const ASSIGNMENT_TTL_HOURS = 24;
+/** Tasks must be completed within this window after assignment, otherwise
+ *  the cron marks them `expired` and the package goes back to the pool.
+ *  1h is tight by design — keeps coverage moving across publishers and
+ *  prevents a single AFK agent from blocking a property all day. */
+const ASSIGNMENT_TTL_HOURS = 1;
+/** Pacing throttle: even if a publisher has capacity (active < cap), don't
+ *  give them another task until this many hours have passed since their
+ *  last assignment. Keeps the rhythm digestible — they get one task,
+ *  publish it, then a new one shows up. */
+const MIN_INTERVAL_BETWEEN_ASSIGNMENTS_HOURS = 1;
 const ELIGIBLE_PUBLISHER_ROLES = ['super_admin', 'ops_manager', 'field_agent'];
 const ACTIVE_PACKAGE_STATUSES = ['generated', 'scheduled', 'pending_approval', 'approved', 'published'];
 
@@ -36,7 +45,7 @@ export class PlacementsScheduler {
     private readonly push: PushService,
   ) {}
 
-  @Cron(CronExpression.EVERY_HOUR, { name: 'placements-round-robin' })
+  @Cron(CronExpression.EVERY_30_MINUTES, { name: 'placements-round-robin' })
   async tick(): Promise<void> {
     if (this.running) return;
     // Dubai working hours: 9am–10pm local (UTC+4, no DST). We never want
@@ -156,12 +165,20 @@ export class PlacementsScheduler {
       // We iterate publishers round-robin style: outer loop = pass, inner
       // loop = each publisher gets +1 task per pass until they hit the cap
       // or run out of eligible packages.
+      const minIntervalMs = MIN_INTERVAL_BETWEEN_ASSIGNMENTS_HOURS * 60 * 60 * 1000;
       let assignedThisPass: number;
       do {
         assignedThisPass = 0;
         for (const pub of publishers) {
           const active = activeMap.get(pub.id) ?? 0;
           if (active >= MAX_ACTIVE_PER_PUBLISHER) continue;
+
+          // Pacing: don't stack assignments on the same publisher in quick
+          // succession. Even with capacity, hold off until the previous
+          // assignment is at least MIN_INTERVAL_BETWEEN_ASSIGNMENTS_HOURS
+          // old, so they can actually publish each one before the next.
+          const lastAt = lastAssignedMap.get(pub.id);
+          if (lastAt && Date.now() - lastAt.getTime() < minIntervalMs) continue;
 
           const recent = recentMap.get(pub.id) ?? new Set<string>();
           const target = candidatePackages.find((p) => !recent.has(p.id));
@@ -227,6 +244,9 @@ export class PlacementsScheduler {
           recent.add(target.id);
           recentMap.set(pub.id, recent);
           activeMap.set(pub.id, active + 1);
+          // Mark this publisher as just-assigned so the next pass in the
+          // same tick respects the pacing window and skips them.
+          lastAssignedMap.set(pub.id, new Date());
           // Bump that package's placement count synthetically so the sort still
           // spreads work if multiple publishers exist
           target._count.placements++;
