@@ -436,6 +436,25 @@ export class PostingService {
     });
   }
 
+  /** AI-drafted promo caption for a channel-growth campaign — operator
+   *  reviews and edits before saving. The tracking URL is NOT embedded in
+   *  the output (mobile shows it separately and the Share sheet sends a
+   *  unique per-placement URL). */
+  async draftGrowthCaption(body: {
+    targetKind: string;
+    targetLabel: string;
+    extraContext?: string;
+  }) {
+    if (!body.targetLabel?.trim()) {
+      throw new BadRequestException('targetLabel is required');
+    }
+    return this.content.generateGrowthCaption({
+      targetKind: body.targetKind ?? 'other',
+      targetLabel: body.targetLabel.trim(),
+      extraContext: body.extraContext?.trim() || undefined,
+    });
+  }
+
   /** Archive a growth campaign — pulls it out of the round-robin pool. */
   async archiveGrowthCampaign(companyId: string, packageId: string) {
     const pkg = await this.prisma.postPackage.findFirst({

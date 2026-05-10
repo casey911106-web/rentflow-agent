@@ -97,6 +97,48 @@ export class ContentService {
     return { caption, modelId: response.model ?? modelId };
   }
 
+  /** Ask Claude for a channel-growth promo caption. The caption gets posted
+   *  in FB/WA rental groups to drive followers to one of our owned channels
+   *  (Telegram, FB page, IG profile). The tracking URL is NOT embedded —
+   *  the mobile UI shows it separately and the Share sheet sends a unique
+   *  per-placement URL. */
+  async generateGrowthCaption(input: {
+    targetKind: string;
+    targetLabel: string;
+    extraContext?: string;
+  }): Promise<{ caption: string; modelId: string }> {
+    const platformLabel = describeGrowthPlatform(input.targetKind);
+    const systemPrompt = `You are a copywriter for a Dubai rental agency. The user runs WhatsApp / Facebook groups for room-and-flat seekers and wants a SHORT promo post that other field agents will paste into OTHER rental-related groups, to drive followers to one of our owned channels.
+
+Output rules:
+- 3 to 5 short lines, with line breaks
+- Open with an emoji hook (🏠 🔑 📣 🚀 ✨ — one is enough, don't spam)
+- One line about what value the channel offers (daily new listings, no scams, direct from owners, exclusive deals, fast viewings — pick what fits)
+- One CTA line inviting people to join. DO NOT include any URL — the unique tracking link is appended automatically by the system after.
+- Mix of Spanish and English where natural — most Dubai room-share users are bilingual. Default lean: ~60% English, ~40% Spanish phrases.
+- No hashtags, no markdown, no quotes, no commentary. Output ONLY the caption text itself.`;
+
+    const userPrompt = `Generate a promo caption for our ${platformLabel}. Channel name: "${input.targetLabel}".${
+      input.extraContext ? `\n\nExtra context: ${input.extraContext}` : ''
+    }`;
+
+    const provider = this.aiRef.provider;
+    const modelId = process.env.AI_MODEL ?? 'claude-sonnet-4-6';
+
+    const response = await provider.complete({
+      systemBlocks: [{ text: systemPrompt }],
+      userPrompt,
+      maxTokens: 350,
+      model: modelId,
+    });
+
+    const caption = (response.text ?? '').trim();
+    if (!caption) {
+      throw new BadRequestException('AI returned empty caption');
+    }
+    return { caption, modelId: response.model ?? modelId };
+  }
+
   /**
    * Publish one piece of content to one channel. Creates a PostPlacement,
    * mints a tracking slug, posts via the platform adapter, then stamps the
@@ -450,4 +492,19 @@ function extractUsername(s: string | null | undefined): string | null {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1).trimEnd() + '…';
+}
+
+function describeGrowthPlatform(kind: string): string {
+  switch (kind) {
+    case 'telegram':
+      return 'Telegram channel';
+    case 'facebook_page':
+      return 'Facebook page';
+    case 'instagram':
+      return 'Instagram profile';
+    case 'whatsapp_community':
+      return 'WhatsApp community';
+    default:
+      return 'social channel';
+  }
 }

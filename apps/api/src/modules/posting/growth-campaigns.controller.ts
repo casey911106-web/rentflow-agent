@@ -14,6 +14,12 @@ interface CreateGrowthCampaignBody {
   targetKind?: string;
 }
 
+interface DraftCaptionBody {
+  targetKind: string;
+  targetLabel: string;
+  extraContext?: string;
+}
+
 @ApiTags('admin/growth-campaigns')
 @Controller('admin/growth-campaigns')
 @UseGuards(RolesGuard)
@@ -31,6 +37,12 @@ export class GrowthCampaignsController {
   @Get()
   list(@CurrentUser() user: JwtPayload) {
     return this.posting.listGrowthCampaigns(user.companyId);
+  }
+
+  /** AI-drafted caption — operator reviews + edits before saving. */
+  @Post('draft-caption')
+  draftCaption(@Body() body: DraftCaptionBody) {
+    return this.posting.draftGrowthCaption(body);
   }
 
   /** Pull a campaign out of the round-robin pool. */

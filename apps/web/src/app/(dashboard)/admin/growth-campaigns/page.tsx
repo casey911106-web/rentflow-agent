@@ -147,7 +147,31 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: ()
   const [targetLabel, setTargetLabel] = useState('');
   const [targetKind, setTargetKind] = useState<string>('telegram');
   const [submitting, setSubmitting] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function generateCaption() {
+    if (!targetLabel.trim()) {
+      setError('Fill the channel name first so the AI knows what to promote.');
+      return;
+    }
+    setGenerating(true);
+    setError(null);
+    try {
+      const res = await api<{ caption: string; modelId: string }>(
+        '/admin/growth-campaigns/draft-caption',
+        {
+          method: 'POST',
+          body: JSON.stringify({ targetKind, targetLabel }),
+        },
+      );
+      setCaption(res.caption);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -186,16 +210,30 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: ()
         />
       </Field>
 
-      <Field label="Caption to publish" hint="Exact text agents will paste in FB/WA groups. Include emojis, line breaks, the works.">
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="block text-xs font-semibold uppercase tracking-wide text-gray-medium">Caption to publish</span>
+          <button
+            type="button"
+            onClick={generateCaption}
+            disabled={generating}
+            className="rounded-md border border-teal/40 bg-teal/10 px-2 py-1 text-xs font-semibold text-teal hover:bg-teal/20 disabled:opacity-60"
+          >
+            {generating ? 'Generating…' : '✨ Generate with AI'}
+          </button>
+        </div>
         <textarea
           required
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
           rows={6}
-          placeholder={'🏠 Find your next room in Dubai\nDaily new listings in our Telegram\n👉 [link]'}
+          placeholder={'🏠 Find your next room in Dubai\nDaily new listings in our Telegram\n👉 Únete'}
           className="w-full rounded-md border border-gray-light px-3 py-2 text-sm font-mono"
         />
-      </Field>
+        <p className="mt-1 text-xs text-gray-medium">
+          Exact text agents will paste in FB/WA groups. The unique tracking link gets appended automatically per placement — don&apos;t put a URL here.
+        </p>
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Target kind">
