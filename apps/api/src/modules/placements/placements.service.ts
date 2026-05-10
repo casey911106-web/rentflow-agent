@@ -322,32 +322,53 @@ export class PlacementsService {
     });
   }
 
-  /** Publisher leaderboard for a date window (default last 30 days). */
+  /** Publisher leaderboard for a date window (default last 30 days).
+   *  Metrics are REAL engagement signals — not the publisher-reported
+   *  groupSize, which we used to inflate as "reach". `totalClicks` is the
+   *  sum of trackingSlug redirects (counted server-side); `attributedLeads`
+   *  is the count of Leads that landed via those clicks. Group membership
+   *  is meaningless without view rate so we don't surface it. */
   async leaderboard(companyId: string, sinceDays = 30) {
     const since = new Date();
     since.setDate(since.getDate() - sinceDays);
 
-    const rows = await this.prisma.postPlacement.groupBy({
-      by: ['publisherUserId'],
+    const placements = await this.prisma.postPlacement.findMany({
       where: { companyId, publishedAt: { gte: since }, removedAt: null },
-      _count: { _all: true },
-      _sum: { groupSize: true },
+      select: {
+        publisherUserId: true,
+        clicks: true,
+        _count: { select: { attributedLeads: true } },
+      },
     });
+    if (placements.length === 0) return [];
 
-    if (rows.length === 0) return [];
+    const acc = new Map<string, { placements: number; clicks: number; leads: number }>();
+    for (const p of placements) {
+      const cur = acc.get(p.publisherUserId) ?? { placements: 0, clicks: 0, leads: 0 };
+      cur.placements += 1;
+      cur.clicks += p.clicks;
+      cur.leads += p._count.attributedLeads;
+      acc.set(p.publisherUserId, cur);
+    }
 
+    const userIds = Array.from(acc.keys());
     const users = await this.prisma.user.findMany({
-      where: { id: { in: rows.map((r) => r.publisherUserId) } },
+      where: { id: { in: userIds } },
       select: { id: true, fullName: true, email: true, roles: true },
     });
     const userMap = new Map(users.map((u) => [u.id, u]));
 
-    return rows
-      .map((r) => ({
-        user: userMap.get(r.publisherUserId) ?? null,
-        placements: r._count._all,
-        totalReach: r._sum.groupSize ?? 0,
-      }))
-      .sort((a, b) => b.totalReach - a.totalReach);
+    return userIds
+      .map((id) => {
+        const m = acc.get(id)!;
+        return {
+          user: userMap.get(id) ?? null,
+          placements: m.placements,
+          totalClicks: m.clicks,
+          attributedLeads: m.leads,
+        };
+      })
+      // Rank by leads first (real conversions), tiebreak on clicks.
+      .sort((a, b) => (b.attributedLeads - a.attributedLeads) || (b.totalClicks - a.totalClicks));
   }
 }

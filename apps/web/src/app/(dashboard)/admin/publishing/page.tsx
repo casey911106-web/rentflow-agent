@@ -6,7 +6,8 @@ import { api } from '@/lib/api';
 interface LeaderboardRow {
   user: { id: string; fullName: string; email: string; roles: string[] } | null;
   placements: number;
-  totalReach: number;
+  totalClicks: number;
+  attributedLeads: number;
 }
 
 export default function PublishingLeaderboardPage() {
@@ -33,14 +34,15 @@ export default function PublishingLeaderboardPage() {
   }, [days]);
 
   const totalPlacements = rows.reduce((sum, r) => sum + r.placements, 0);
-  const totalReach = rows.reduce((sum, r) => sum + r.totalReach, 0);
+  const totalClicks = rows.reduce((sum, r) => sum + r.totalClicks, 0);
+  const totalLeads = rows.reduce((sum, r) => sum + r.attributedLeads, 0);
 
   return (
     <div className="space-y-4">
       <header>
         <h1 className="text-2xl font-bold text-navy-deep">Publishing leaderboard</h1>
         <p className="text-sm text-gray-medium">
-          Effort & reach per publisher. The more groups they post in, the more leads we get.
+          Real engagement per publisher: clicks on their unique tracking links and leads attributed to those clicks.
         </p>
       </header>
 
@@ -60,8 +62,8 @@ export default function PublishingLeaderboardPage() {
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <KpiTile label="Total placements" value={totalPlacements.toLocaleString()} />
-        <KpiTile label="Total reach" value={totalReach.toLocaleString()} suffix="people" />
-        <KpiTile label="Avg reach / placement" value={totalPlacements > 0 ? Math.round(totalReach / totalPlacements).toLocaleString() : '—'} />
+        <KpiTile label="Total clicks" value={totalClicks.toLocaleString()} suffix="link clicks" />
+        <KpiTile label="Attributed leads" value={totalLeads.toLocaleString()} suffix="from these placements" />
       </div>
 
       {error ? <p className="rounded-md bg-red-50 p-3 text-sm text-danger">{error}</p> : null}
@@ -75,8 +77,8 @@ export default function PublishingLeaderboardPage() {
               <th className="px-4 py-3">Publisher</th>
               <th className="px-4 py-3">Roles</th>
               <th className="px-4 py-3 text-right">Placements</th>
-              <th className="px-4 py-3 text-right">Total reach</th>
-              <th className="px-4 py-3 text-right">Avg reach / placement</th>
+              <th className="px-4 py-3 text-right">Clicks</th>
+              <th className="px-4 py-3 text-right">Leads</th>
             </tr>
           </thead>
           <tbody>
@@ -97,10 +99,8 @@ export default function PublishingLeaderboardPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3 text-right font-semibold">{r.placements.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right font-semibold">{r.totalReach.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right text-gray-dark">
-                  {r.placements > 0 ? Math.round(r.totalReach / r.placements).toLocaleString() : '—'}
-                </td>
+                <td className="px-4 py-3 text-right font-semibold">{r.totalClicks.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right font-semibold text-teal">{r.attributedLeads.toLocaleString()}</td>
               </tr>
             ))}
             {!loading && rows.length === 0 ? (
@@ -111,8 +111,7 @@ export default function PublishingLeaderboardPage() {
       </div>
 
       <p className="text-xs text-gray-medium">
-        Reach is the sum of group/page member counts publishers reported when logging each placement.
-        Encourage publishers to fill in the audience size accurately — it&apos;s the basis for scoring effort.
+        Clicks are server-counted hits on each placement&apos;s unique tracking link. Leads are visitors who came through one of those clicks and started a WhatsApp conversation. Both are real signals — group/page member counts are not.
       </p>
     </div>
   );
