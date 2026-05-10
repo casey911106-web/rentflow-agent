@@ -204,25 +204,80 @@ function RotationSummary({ data }: { data: PostPackageRow[] }) {
 
   return (
     <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-      <div className="rounded-md border border-l-4 border-l-teal bg-white p-4 shadow-card">
-        <p className="text-xs uppercase tracking-wide text-gray-medium">In rotation</p>
-        <p className="mt-1 text-2xl font-bold text-navy-deep">{inRotation.length}</p>
-        <p className="mt-1 text-xs text-gray-medium">
-          {activelyWorked > 0
+      <SummaryTile
+        label="In rotation"
+        count={inRotation.length}
+        items={inRotation}
+        leftAccent="border-l-teal"
+        sub={
+          activelyWorked > 0
             ? `${activelyWorked} actively being worked on (${totalPendingAssignments} pending assignment${totalPendingAssignments === 1 ? '' : 's'})`
-            : 'Waiting for next 30-min round-robin tick'}
-        </p>
-      </div>
-      <div className="rounded-md border bg-white p-4 shadow-card">
-        <p className="text-xs uppercase tracking-wide text-gray-medium">Drafts</p>
-        <p className="mt-1 text-2xl font-bold text-navy-deep">{drafts.length}</p>
-        <p className="mt-1 text-xs text-gray-medium">Generated but not yet entered the rotation pool</p>
-      </div>
-      <div className="rounded-md border bg-white p-4 shadow-card">
-        <p className="text-xs uppercase tracking-wide text-gray-medium">Paused / archived</p>
-        <p className="mt-1 text-2xl font-bold text-navy-deep">{paused.length}</p>
-        <p className="mt-1 text-xs text-gray-medium">Out of rotation — no new tasks generated</p>
-      </div>
+            : 'Waiting for next 30-min round-robin tick'
+        }
+      />
+      <SummaryTile
+        label="Drafts"
+        count={drafts.length}
+        items={drafts}
+        sub="Generated but not yet entered the rotation pool"
+      />
+      <SummaryTile
+        label="Paused / archived"
+        count={paused.length}
+        items={paused}
+        sub="Out of rotation — no new tasks generated"
+      />
+    </div>
+  );
+}
+
+function SummaryTile({
+  label,
+  count,
+  items,
+  sub,
+  leftAccent,
+}: {
+  label: string;
+  count: number;
+  items: PostPackageRow[];
+  sub: string;
+  leftAccent?: string;
+}) {
+  const VISIBLE = 8;
+  // Sort by most placements (most "active") first so the chip strip
+  // shows the headliners not random ones.
+  const sorted = [...items].sort((a, b) => (b._count.placements ?? 0) - (a._count.placements ?? 0));
+  const visible = sorted.slice(0, VISIBLE);
+  const hidden = Math.max(0, items.length - VISIBLE);
+
+  return (
+    <div
+      className={`rounded-md border bg-white p-4 shadow-card ${leftAccent ? `border-l-4 ${leftAccent}` : ''}`}
+    >
+      <p className="text-xs uppercase tracking-wide text-gray-medium">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-navy-deep">{count}</p>
+      <p className="mt-1 text-xs text-gray-medium">{sub}</p>
+      {visible.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {visible.map((p) => (
+            <Link
+              key={p.id}
+              href={`/posting/${p.id}`}
+              className="rounded bg-offwhite px-2 py-0.5 font-mono text-[11px] text-gray-dark hover:bg-teal/10 hover:text-teal"
+              title={`${p.property.code} — ${p.title ?? p.property.name}${p.pendingAssignmentsCount > 0 ? ` · ${p.pendingAssignmentsCount} publisher${p.pendingAssignmentsCount === 1 ? '' : 's'} now` : ''}`}
+            >
+              {p.property.code}
+              {p.pendingAssignmentsCount > 0 ? <span className="ml-1 text-teal">●</span> : null}
+            </Link>
+          ))}
+          {hidden > 0 ? (
+            <span className="rounded bg-offwhite px-2 py-0.5 text-[11px] text-gray-medium">
+              +{hidden} more
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
