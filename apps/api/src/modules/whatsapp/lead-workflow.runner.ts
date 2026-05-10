@@ -12,8 +12,13 @@ import { SuggestionsService } from '../ai-agent/suggestions.service';
  * and sends it to the lead without waiting for the operator. Below this,
  * the suggestion stays pending. The AI's `escalate` flag always disables
  * auto-approve regardless of confidence.
+ *
+ * Raised from 0.85 to 0.95 — Claude tended to overshoot confidence and
+ * leak wrong-info replies through. The system prompt now defines a
+ * calibrated 0.95+ band ("a junior teammate would send this identically")
+ * so suggestions in that band are genuinely safe to auto-send.
  */
-const AUTO_APPROVE_CONFIDENCE = 0.85;
+const AUTO_APPROVE_CONFIDENCE = 0.95;
 
 interface RunInput {
   companyId: string;
@@ -126,6 +131,42 @@ export class LeadWorkflowRunner {
       return;
     }
 
+    // Persist multi-field extraction onto the Lead row (only fill empty
+    // fields — never overwrite something the operator already corrected).
+    if (result.payload.extractedFields) {
+      const ef = result.payload.extractedFields;
+      const updates: Record<string, unknown> = {};
+      if (ef.budgetAed != null && lead.budgetAed == null) updates.budgetAed = ef.budgetAed;
+      if (ef.preferredArea && !lead.preferredArea) updates.preferredArea = ef.preferredArea;
+      if (ef.peopleCount != null && lead.peopleCount == null) updates.peopleCount = ef.peopleCount;
+      if (ef.moveInDate && !lead.moveInDate) {
+        const d = new Date(ef.moveInDate);
+        if (!isNaN(d.getTime())) updates.moveInDate = d;
+      }
+      if (ef.rentalDurationMonths != null && lead.rentalDurationMonths == null) {
+        updates.rentalDurationMonths = ef.rentalDurationMonths;
+      }
+      if (Object.keys(updates).length > 0) {
+        await this.prisma.lead.update({ where: { id: lead.id }, data: updates });
+        this.logger.log(`Lead ${lead.id} fields updated from AI extraction: ${Object.keys(updates).join(', ')}`);
+      }
+    }
+
+    // Server-side validation of `stateAfter` — Claude sometimes jumps to
+    // suggest_property without enough profile data, or to closed without
+    // an explicit close signal. Snap implausible jumps back to a
+    // collect_* state.
+    const fieldsKnown = countCollectedFields(lead, result.payload.extractedFields);
+    let stateAfter = result.payload.stateAfter;
+    if (stateAfter === 'suggest_property' && fieldsKnown < 2) {
+      this.logger.warn(`Snapping stateAfter from suggest_property → qualify_lead (only ${fieldsKnown}/5 fields known) for lead=${lead.id}`);
+      stateAfter = 'qualify_lead';
+    }
+    if (stateAfter === 'closed' && !['won', 'lost', 'opted_out'].includes(lead.status)) {
+      this.logger.warn(`Snapping stateAfter from closed → qualify_lead (lead status=${lead.status}) for lead=${lead.id}`);
+      stateAfter = 'qualify_lead';
+    }
+
     const suggestion = await this.prisma.suggestion.create({
       data: {
         companyId: input.companyId,
@@ -136,7 +177,7 @@ export class LeadWorkflowRunner {
         suggestedReply: result.payload.suggestedReply,
         reasoning: result.payload.reasoning,
         confidence: result.payload.confidence,
-        stateAfter: result.payload.stateAfter,
+        stateAfter,
         escalate: result.payload.escalate,
         status: 'pending',
         modelId: result.modelId,
@@ -350,4 +391,21 @@ export class LeadWorkflowRunner {
       this.logger.warn(`Operator notify failed for fast-path suggestion=${suggestion.id}: ${(err as Error).message}`);
     }
   }
+}
+
+/** Count how many of the 5 lead-profile fields we have, taking into
+ *  account the freshly-extracted ones in this turn (which haven't been
+ *  written to DB yet at the time we snap stateAfter). */
+function countCollectedFields(
+  lead: { budgetAed: unknown; preferredArea: string | null; peopleCount: number | null; moveInDate: Date | null; rentalDurationMonths: number | null },
+  extracted: { budgetAed?: number; preferredArea?: string; peopleCount?: number; moveInDate?: string; rentalDurationMonths?: number } | undefined,
+): number {
+  const has = {
+    budget: lead.budgetAed != null || extracted?.budgetAed != null,
+    area: !!lead.preferredArea || !!extracted?.preferredArea,
+    people: lead.peopleCount != null || extracted?.peopleCount != null,
+    moveIn: lead.moveInDate != null || !!extracted?.moveInDate,
+    duration: lead.rentalDurationMonths != null || extracted?.rentalDurationMonths != null,
+  };
+  return Object.values(has).filter(Boolean).length;
 }

@@ -28,12 +28,23 @@ export interface GenerateSuggestionInput {
   proactive?: { hoursOfSilence: number };
 }
 
+export interface ExtractedFields {
+  budgetAed?: number;
+  preferredArea?: string;
+  peopleCount?: number;
+  moveInDate?: string; // ISO date YYYY-MM-DD
+  rentalDurationMonths?: number;
+}
+
 export interface SuggestionPayload {
   suggestedReply: string;
   reasoning: string;
   confidence: number;
   stateAfter: LeadState | string;
   escalate: boolean;
+  /** Fields the AI extracted from the lead's recent messages. The runner
+   *  persists these onto the Lead row so multi-field replies aren't lost. */
+  extractedFields?: ExtractedFields;
 }
 
 export interface SuggestionResult {
@@ -55,9 +66,24 @@ const SUGGESTION_JSON_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
   required: ['suggestedReply', 'reasoning', 'confidence', 'stateAfter', 'escalate'],
   properties: {
-    suggestedReply: { type: 'string', description: 'The exact WhatsApp message body to send to the lead.' },
-    reasoning: { type: 'string', description: '1-2 sentences explaining why this reply (operator-only).' },
-    confidence: { type: 'number', description: '0.0-1.0 confidence in this suggestion.' },
+    suggestedReply: {
+      type: 'string',
+      description: 'The exact WhatsApp message body to send to the lead.',
+    },
+    reasoning: {
+      type: 'string',
+      description: '1-2 sentences explaining why this reply (operator-only).',
+    },
+    confidence: {
+      type: 'number',
+      description:
+        'Calibrated confidence the operator should auto-send this reply. Scale: ' +
+        '0.95+ = trivial reply where any phrasing works (greeting, single-fact answer from catalog, scheduler-link send-off). ' +
+        '0.80-0.94 = clear intent but content depends on judgement (price negotiation, multiple-property comparison, follow-up tone). ' +
+        '0.50-0.79 = ambiguous lead intent OR you had to interpret a partial answer. ' +
+        'Below 0.50 = you are guessing or pattern-matching without confirmation. ' +
+        'Auto-approve gate is 0.95 — anything below stays pending for the human operator.',
+    },
     stateAfter: {
       type: 'string',
       enum: [
@@ -72,7 +98,47 @@ const SUGGESTION_JSON_SCHEMA: Record<string, unknown> = {
         'closed',
       ],
     },
-    escalate: { type: 'boolean', description: 'true if a human operator should review urgently.' },
+    escalate: {
+      type: 'boolean',
+      description:
+        'true if a human operator must review BEFORE this is sent. Concrete triggers: ' +
+        '(a) lead is angry, frustrated, complaining about a real issue (broken link, no-show, refund request, scam accusation); ' +
+        '(b) lead asks about something outside rental discovery (legal, immigration, jobs, tax); ' +
+        '(c) lead is haggling on price below the catalog number; ' +
+        '(d) lead asks you to break a hard rule (share owner contact, confirm unavailable property); ' +
+        '(e) lead uses opt-out keywords (STOP, unsubscribe, لا تراسلني); ' +
+        '(f) you genuinely cannot tell what the lead wants after re-reading the latest [LEAD] line. ' +
+        'Do NOT escalate just because the conversation is long, or because you have low confidence — low confidence means "stays pending" not "escalate". ' +
+        'Do NOT escalate based on stale grievances if the latest [LEAD] line has moved on.',
+    },
+    extractedFields: {
+      type: 'object',
+      description:
+        'Lead profile fields you parsed from the most recent [LEAD] lines. ONLY include a field when the lead stated it explicitly in this conversation — do NOT infer or guess. Omit the field entirely (do not send null) if not present. The system merges these into the Lead row so they persist across turns.',
+      additionalProperties: false,
+      properties: {
+        budgetAed: {
+          type: 'number',
+          description: 'Monthly budget in AED, only if the lead said a number (e.g. "AED 4000", "4k aed", "around 5,000").',
+        },
+        preferredArea: {
+          type: 'string',
+          description: 'Area in Dubai the lead asked for (e.g. "Marina", "JBR", "Downtown"). Free text, lowercased OK.',
+        },
+        peopleCount: {
+          type: 'integer',
+          description: 'Total occupants if explicitly mentioned ("for 2 people", "I am alone" → 1, "with my wife and 2 kids" → 4).',
+        },
+        moveInDate: {
+          type: 'string',
+          description: 'ISO date YYYY-MM-DD if the lead gave a specific date or relative ("next Monday" → resolve relative to today). Omit if vague ("soon", "this month").',
+        },
+        rentalDurationMonths: {
+          type: 'integer',
+          description: 'Stay duration in months if explicit ("for 3 months", "1 year" → 12, "few weeks" → omit).',
+        },
+      },
+    },
   },
 };
 
@@ -96,13 +162,20 @@ export class SuggestionEngineService {
       this.prisma.whatsAppConversation.findUnique({
         where: { id: input.conversationId },
         include: {
-          messages: { orderBy: { createdAt: 'asc' }, take: 30 },
+          // Pull 60 messages so we can render "first N + last M" in the
+          // user prompt — keeps early intent and recent context without
+          // dropping the middle entirely (which broke continuity in long
+          // conversations).
+          messages: { orderBy: { createdAt: 'asc' }, take: 60 },
         },
       }),
       this.prisma.trainingExample.findMany({
         where: { companyId: input.companyId, enabled: true },
         orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
-        take: 5,
+        // 15 examples (was 5) — gives Claude more diverse correction
+        // patterns to learn from, especially the longer-tail edge cases
+        // that the 5 most-recent rarely covered.
+        take: 15,
       }),
       this.prisma.property.findMany({
         where: { companyId: input.companyId, deletedAt: null, status: 'available' },
@@ -308,14 +381,37 @@ The lead progresses through these stages. The current stage is given in the user
 
 Aim to advance ONE stage per message. Don't ask 5 questions at once. If the lead's reply doesn't have what you need (e.g. you asked for a date and they said "soon"), gently re-ask with examples.
 
+## Multi-field extraction — important
+Leads frequently pack multiple facts into one message: "I am 2 people, 4000 budget, marina, moving in Feb". When that happens, EXTRACT EVERY FIELD they stated into \`extractedFields\` in your output JSON, then move the workflow to the next un-collected field. Don't drop facts because the current state is "collect_budget" — if the lead also gave you area and people count, capture them too.
+
+Rules for \`extractedFields\`:
+- Only include a field when the lead said it explicitly. Never infer.
+- Skip the field entirely (don't send null) if the lead didn't mention it.
+- For \`moveInDate\` accept only a real date — "soon", "this month", "ASAP" → omit.
+- For \`peopleCount\` count people who will sleep there: "for 2 people" → 2. "alone" → 1. "with my wife" → 2. "with my wife and son" → 3.
+- For \`budgetAed\` parse the number even if formatted as "4k", "5,000", "AED 4000". Reject ranges ("3-5k") — omit instead.
+
+## Confidence calibration — be strict
+The system auto-sends suggestions with confidence ≥ 0.95 without operator review. Below that, the human reviews. Calibrate honestly:
+- **0.95-1.0**: only for replies a junior teammate would send identically. Plain greeting, single fact-lookup, scheduler send-off after price was confirmed, simple confirmation.
+- **0.80-0.94**: clear intent but content is judgement-dependent — comparing 2 properties, handling a polite price push-back, choosing follow-up tone.
+- **0.50-0.79**: lead's request is ambiguous OR you interpreted a partial answer.
+- **< 0.50**: you are guessing.
+
+Do NOT inflate confidence to 0.9+ just to skip operator review — operators catch wrong info you missed. When unsure, undershoot: 0.7 is a safe default.
+
+## Stage advancement — be honest
+Set \`stateAfter\` to the stage the conversation would land in *after a useful reply*. Don't jump to \`suggest_property\` until you actually have enough lead profile (at least 2 of: budget, area, moveInDate). Don't set \`closed\` unless the lead explicitly said no/won/lost. The system rejects implausible jumps server-side and snaps you back to a collect_* state — keep yourself out of that path by being honest.
+
 ## Output format
 Respond ONLY with JSON matching this exact shape:
 {
   "suggestedReply": "the WhatsApp message body to send (string, required)",
   "reasoning": "1-2 sentences why you chose this reply (string, required, internal only)",
-  "confidence": 0.0 to 1.0 (number, required),
+  "confidence": 0.0 to 1.0 (number, required, calibrated per scale above),
   "stateAfter": "next workflow stage if the lead replies usefully (string, required)",
-  "escalate": false (boolean, required)
+  "escalate": false (boolean, required, see triggers in schema description),
+  "extractedFields": { ...optional, only fields the lead stated explicitly... }
 }
 
 Do not include any text outside the JSON object.
@@ -404,13 +500,21 @@ Do not include any text outside the JSON object.
       .filter(Boolean)
       .join('\n');
 
-    const lastMessages = conversation.messages
-      .slice(-12)
-      .map((m) => {
-        const tag = m.direction === 'inbound' ? '[LEAD]' : '[US]';
-        return `${tag} ${m.body ?? '(non-text)'}`;
-      })
-      .join('\n');
+    // Render first 5 (early intent — "I want a 1BR in Marina under 5k") +
+    // last 20 (current state). When total ≤ 25 we just show all of them.
+    // Insert a "…" marker if we drop messages from the middle so Claude
+    // knows there's a gap rather than treating it as continuous flow.
+    const totalMsgs = conversation.messages.length;
+    let renderedMsgs: string[];
+    if (totalMsgs <= 25) {
+      renderedMsgs = conversation.messages.map(formatMsg);
+    } else {
+      const head = conversation.messages.slice(0, 5).map(formatMsg);
+      const tail = conversation.messages.slice(-20).map(formatMsg);
+      const dropped = totalMsgs - head.length - tail.length;
+      renderedMsgs = [...head, `[…${dropped} earlier messages omitted to save context…]`, ...tail];
+    }
+    const lastMessages = renderedMsgs.join('\n');
 
     const viewingsBlock = viewings.length === 0
       ? '(none — no viewings booked yet)'
@@ -468,6 +572,27 @@ If the lead is complaining about a problem ("link broken", "no funciona") and th
 Respond with the JSON object only, no surrounding text.`;
   }
 
+  private extractFields(parsed: unknown): ExtractedFields | undefined {
+    if (!parsed || typeof parsed !== 'object') return undefined;
+    const ef = (parsed as Record<string, unknown>)['extractedFields'];
+    if (!ef || typeof ef !== 'object') return undefined;
+    const e = ef as Record<string, unknown>;
+    const out: ExtractedFields = {};
+    if (typeof e['budgetAed'] === 'number') out.budgetAed = e['budgetAed'] as number;
+    if (typeof e['preferredArea'] === 'string') out.preferredArea = (e['preferredArea'] as string).trim();
+    if (typeof e['peopleCount'] === 'number' && Number.isInteger(e['peopleCount'])) {
+      out.peopleCount = e['peopleCount'] as number;
+    }
+    if (typeof e['moveInDate'] === 'string') {
+      const s = (e['moveInDate'] as string).trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) out.moveInDate = s.slice(0, 10);
+    }
+    if (typeof e['rentalDurationMonths'] === 'number' && Number.isInteger(e['rentalDurationMonths'])) {
+      out.rentalDurationMonths = e['rentalDurationMonths'] as number;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
   private coerceToPayload(parsed: unknown, fallbackText: string): SuggestionPayload | null {
     if (parsed && typeof parsed === 'object') {
       const p = parsed as Record<string, unknown>;
@@ -478,6 +603,7 @@ Respond with the JSON object only, no surrounding text.`;
           confidence: typeof p['confidence'] === 'number' ? (p['confidence'] as number) : 0.5,
           stateAfter: typeof p['stateAfter'] === 'string' ? (p['stateAfter'] as string) : 'closed',
           escalate: p['escalate'] === true,
+          extractedFields: this.extractFields(parsed),
         };
       }
     }
@@ -492,4 +618,9 @@ Respond with the JSON object only, no surrounding text.`;
     }
     return null;
   }
+}
+
+function formatMsg(m: { direction: string; body: string | null }): string {
+  const tag = m.direction === 'inbound' ? '[LEAD]' : '[US]';
+  return `${tag} ${m.body ?? '(non-text)'}`;
 }
