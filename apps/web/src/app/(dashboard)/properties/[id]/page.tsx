@@ -106,6 +106,8 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
     occupancyMax: '',
     rentalMinMonths: '',
     viewingAccess: '',
+    moveInDate: '',
+    commissionPolicy: '',
   });
   const [dirty, setDirty] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -125,6 +127,8 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
         occupancyMax: property.occupancyMax?.toString() ?? '',
         rentalMinMonths: property.rentalMinMonths?.toString() ?? '',
         viewingAccess: property.viewingAccess ?? '',
+        moveInDate: property.moveInDate ? property.moveInDate.slice(0, 10) : '',
+        commissionPolicy: (property as { commissionPolicy?: string | null }).commissionPolicy ?? '',
       });
       setDirty(false);
     }
@@ -145,10 +149,19 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
           occupancyMax: edit.occupancyMax ? Number(edit.occupancyMax) : null,
           rentalMinMonths: edit.rentalMinMonths ? Number(edit.rentalMinMonths) : null,
           viewingAccess: edit.viewingAccess || null,
+          moveInDate: edit.moveInDate ? new Date(edit.moveInDate).toISOString() : null,
+          commissionPolicy: edit.commissionPolicy || null,
           priceConfirmedAt: edit.priceAed ? new Date().toISOString() : undefined,
         }),
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
+      // Auto-recalc readiness so the badge reflects the new fields
+      // immediately. Falls back gracefully if the recompute fails.
+      try {
+        await api(`/properties/${params.id}/recalculate-scores`, { method: 'POST' });
+      } catch {
+        /* ignore — manual button still works */
+      }
       qc.invalidateQueries({ queryKey: ['properties', params.id] });
       setDirty(false);
     },
@@ -158,6 +171,21 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
   const recalcScores = useMutation({
     mutationFn: () =>
       api(`/properties/${params.id}/recalculate-scores`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['properties', params.id] }),
+    onError: (err) => setActionError((err as Error).message),
+  });
+
+  // One-tap "this is still true" confirmations. Bumps the timestamp on
+  // the property + auto-recomputes readiness so the score reflects it.
+  const confirmTimestamp = useMutation({
+    mutationFn: async (which: 'availability' | 'price') => {
+      const field = which === 'availability' ? 'availabilityConfirmedAt' : 'priceConfirmedAt';
+      await api(`/properties/${params.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ [field]: new Date().toISOString() }),
+      });
+      await api(`/properties/${params.id}/recalculate-scores`, { method: 'POST' });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['properties', params.id] }),
     onError: (err) => setActionError((err as Error).message),
   });
@@ -295,8 +323,65 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
               rows={2}
               value={edit.viewingAccess}
               onChange={(e) => setField('viewingAccess', e.target.value)}
+              placeholder='ej: "Recoger llaves del lockbox 4321 en lobby" / "Owner abre, llamar 30min antes"'
               className="w-full rounded-md border border-gray-light bg-offwhite p-2.5 text-sm focus:border-teal focus:bg-white focus:outline-none"
             />
+
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-dark">Move-in date disponible</label>
+                <input
+                  type="date"
+                  value={edit.moveInDate}
+                  onChange={(e) => setField('moveInDate', e.target.value)}
+                  className="w-full rounded-md border border-gray-light bg-offwhite p-2.5 text-sm focus:border-teal focus:bg-white focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-dark">Política de comisión</label>
+                <input
+                  type="text"
+                  value={edit.commissionPolicy}
+                  onChange={(e) => setField('commissionPolicy', e.target.value)}
+                  placeholder='ej: "Renta primera + 1,000 AED al cierre"'
+                  className="w-full rounded-md border border-gray-light bg-offwhite p-2.5 text-sm focus:border-teal focus:bg-white focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Quick confirm buttons — they bump the *ConfirmedAt timestamp on the property
+                and auto-recompute readiness. Used to renew "yes still available / yes still
+                this price" without having to re-enter the same numbers. */}
+            <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => confirmTimestamp.mutate('availability')}
+                disabled={confirmTimestamp.isPending}
+                className="rounded-md bg-teal/10 px-3 py-2 text-xs font-semibold text-teal hover:bg-teal/20 disabled:opacity-60"
+              >
+                ✓ Confirmar disponibilidad ahora
+                <span className="block font-normal text-[11px] text-gray-medium">
+                  (+20 readiness · vence cada 7 días)
+                  {property.availabilityConfirmedAt
+                    ? ` · última: ${new Date(property.availabilityConfirmedAt).toLocaleDateString()}`
+                    : ' · nunca'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmTimestamp.mutate('price')}
+                disabled={confirmTimestamp.isPending}
+                className="rounded-md bg-teal/10 px-3 py-2 text-xs font-semibold text-teal hover:bg-teal/20 disabled:opacity-60"
+              >
+                ✓ Confirmar precio ahora
+                <span className="block font-normal text-[11px] text-gray-medium">
+                  (+15 readiness · vence cada 14 días)
+                  {property.priceConfirmedAt
+                    ? ` · última: ${new Date(property.priceConfirmedAt).toLocaleDateString()}`
+                    : ' · nunca'}
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Owner */}

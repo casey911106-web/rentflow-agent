@@ -127,13 +127,27 @@ export class PropertiesService {
     // attacker set companyId, code (immutable), deletedAt, readinessScore,
     // submittedByUserId etc. via the public PATCH endpoint.
     const data: Prisma.PropertyUpdateInput = {};
-    const stringFields = ['name', 'description', 'addressLine', 'area'] as const;
+    const stringFields = [
+      'name',
+      'description',
+      'addressLine',
+      'area',
+      'viewingAccess',
+      'commissionPolicy',
+    ] as const;
     const numberFields = ['priceAed', 'depositAed', 'occupancyMax', 'rentalMinMonths', 'latitude', 'longitude'] as const;
+    const dateFields = ['priceConfirmedAt', 'availabilityConfirmedAt', 'moveInDate'] as const;
     for (const k of stringFields) {
       if (k in body) (data as Record<string, unknown>)[k] = body[k];
     }
     for (const k of numberFields) {
       if (k in body) (data as Record<string, unknown>)[k] = body[k];
+    }
+    for (const k of dateFields) {
+      if (k in body) {
+        const v = body[k];
+        (data as Record<string, unknown>)[k] = v ? new Date(v as string) : null;
+      }
     }
     if ('type' in body) (data as Record<string, unknown>).type = body.type;
     if ('status' in body) (data as Record<string, unknown>).status = body.status;
