@@ -120,8 +120,29 @@ export class PropertiesService {
     });
   }
 
-  async update(companyId: string, id: string, data: Prisma.PropertyUpdateInput) {
+  async update(companyId: string, id: string, body: Record<string, unknown>) {
     await this.findById(companyId, id);
+    // SECURITY: explicit allowlist for the editable fields. The controller
+    // body is Record<string, unknown>; passing it directly would let an
+    // attacker set companyId, code (immutable), deletedAt, readinessScore,
+    // submittedByUserId etc. via the public PATCH endpoint.
+    const data: Prisma.PropertyUpdateInput = {};
+    const stringFields = ['name', 'description', 'addressLine', 'area'] as const;
+    const numberFields = ['priceAed', 'depositAed', 'occupancyMax', 'rentalMinMonths', 'latitude', 'longitude'] as const;
+    for (const k of stringFields) {
+      if (k in body) (data as Record<string, unknown>)[k] = body[k];
+    }
+    for (const k of numberFields) {
+      if (k in body) (data as Record<string, unknown>)[k] = body[k];
+    }
+    if ('type' in body) (data as Record<string, unknown>).type = body.type;
+    if ('status' in body) (data as Record<string, unknown>).status = body.status;
+    if ('amenities' in body) (data as Record<string, unknown>).amenities = body.amenities;
+    if ('ownerId' in body) (data as Record<string, unknown>).ownerId = body.ownerId;
+    if ('assignedFieldAgentId' in body) {
+      (data as Record<string, unknown>).assignedFieldAgentId = body.assignedFieldAgentId;
+    }
+
     const property = await this.prisma.property.update({ where: { id }, data });
     // Re-render every active Fast Posting tied to this property so the
     // next batch of placements goes out with the edited price/name/area.

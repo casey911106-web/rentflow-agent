@@ -51,8 +51,30 @@ export class LeadsService {
     return this.prisma.lead.update({ where: { id }, data: { status } });
   }
 
-  async update(companyId: string, id: string, data: Record<string, unknown>) {
+  async update(companyId: string, id: string, body: Record<string, unknown>) {
     await this.findById(companyId, id);
+    // SECURITY: explicit allowlist. The controller takes Record<string, unknown>
+    // for ergonomic edits, but we MUST NOT pass that through to Prisma —
+    // otherwise an attacker can pass companyId, attributionPlacementId,
+    // whatsappConversationId, deletedAt, etc. and cross tenants or corrupt
+    // attribution. Only the fields below can be edited via this endpoint.
+    const data: Record<string, unknown> = {};
+    const allowed = [
+      'fullName',
+      'status',
+      'temperature',
+      'qualificationScore',
+      'budgetAed',
+      'preferredArea',
+      'peopleCount',
+      'moveInDate',
+      'rentalDurationMonths',
+      'propertyId',
+    ] as const;
+    for (const key of allowed) {
+      if (key in body) data[key] = body[key];
+    }
+    if (Object.keys(data).length === 0) return this.findById(companyId, id);
     return this.prisma.lead.update({ where: { id }, data });
   }
 }

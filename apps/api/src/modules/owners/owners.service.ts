@@ -32,7 +32,17 @@ export class OwnersService {
 
   async update(companyId: string, id: string, body: Record<string, unknown>) {
     await this.findById(companyId, id);
-    return this.prisma.owner.update({ where: { id }, data: body });
+    // SECURITY: explicit allowlist. The controller body is Record<string,
+    // unknown>; without filtering an attacker could pass companyId and
+    // move the owner to another tenant, or set arbitrary fields like
+    // deletedAt. Only the small set of edit-safe fields below is honoured.
+    const data: Record<string, unknown> = {};
+    const allowed = ['fullName', 'phoneE164', 'email', 'notes'] as const;
+    for (const key of allowed) {
+      if (key in body) data[key] = body[key];
+    }
+    if (Object.keys(data).length === 0) return this.findById(companyId, id);
+    return this.prisma.owner.update({ where: { id }, data });
   }
 
   async triggerAvailabilityCheck(companyId: string, id: string) {

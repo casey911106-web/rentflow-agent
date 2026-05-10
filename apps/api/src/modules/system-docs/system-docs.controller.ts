@@ -22,10 +22,12 @@ export class SystemDocsController {
   @Public()
   @Get('build-info')
   buildInfo() {
+    // SECURITY: nodeVersion omitted on purpose — it narrows the CVE
+    // search space for any unauth scanner. Adapter labels stay because
+    // ops needs them to verify which provider this deploy is wired to.
     return {
       version: process.env.npm_package_version ?? '0.1.0',
       bootedAt: process.env.BOOTED_AT ?? new Date().toISOString(),
-      nodeVersion: process.version,
       aiProvider: process.env.AI_PROVIDER ?? 'mock',
       whatsappAdapter: process.env.WHATSAPP_ADAPTER ?? 'mock',
     };
