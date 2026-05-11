@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiProviderRef } from '../ai-agent/ai-provider.ref';
+import { FilesService } from '../files/files.service';
+import { CarouselRendererService } from './carousel-renderer.service';
 import { MetaGraphAdapter } from './meta-graph.adapter';
 import { TelegramAdapter } from './telegram.adapter';
 
@@ -43,6 +45,8 @@ export class ContentService {
     private readonly aiRef: AiProviderRef,
     private readonly telegram: TelegramAdapter,
     private readonly meta: MetaGraphAdapter,
+    private readonly carouselRenderer: CarouselRendererService,
+    private readonly files: FilesService,
   ) {}
 
   async listChannels(companyId: string) {
@@ -174,7 +178,10 @@ CHANNEL-SPECIFIC RULES — strict:
   • Commission (one-time, on deal close): AED Z
 End with marketplace URL + "Agent WhatsApp: <local number> — quote code <code>".
 
-LANGUAGE — for Dubai rental groups, mix EN/ES organically. Default ~70% English, ~30% Spanish phrasing. Avoid "amazing", "super luxurious", "stunning" without proof — let the photo + the price say it.
+LANGUAGE — English ONLY. RentFlow's audience is Dubai expats and the
+business publishes to English-speaking groups, pages and channels.
+Avoid "amazing", "super luxurious", "stunning" without proof — let the
+photo + the price say it.
 
 NEVER LIE — if a feature isn't in the property data, don't invent it. If the description mentions amenities, you can use them. The 3 mandatory numbers (rent / deposit / commission) come from the data; commission is calculated by bedroom count: studio/1BR = AED 1,000; 2-3BR = AED 2,000; 4+/villa = AED 3,000.
 
@@ -303,8 +310,7 @@ CRITICAL RULES:
   link is appended automatically by the system after the caption.
 - Total: 4-7 lines, line breaks for breathing room.
 - Max 2 emojis total. No emoji on every line.
-- Mix EN/ES organically (~60% English, ~40% Spanish). Most Dubai
-  room-share users are bilingual.
+- English only — RentFlow's audience is Dubai expats.
 - No hashtags, no markdown, no quotes around the output.
 
 Output ONLY the caption text itself, no commentary.`;
@@ -344,6 +350,9 @@ Output ONLY the caption text itself, no commentary.`;
           companyId: true,
           code: true,
           name: true,
+          type: true,
+          area: true,
+          priceAed: true,
           media: {
             orderBy: { position: 'asc' },
             take: 10,
@@ -422,7 +431,12 @@ Output ONLY the caption text itself, no commentary.`;
       } else if (channel.platform === 'facebook') {
         result = await this.publishFacebookPage(channel, property, captionWithLink);
       } else if (channel.platform === 'instagram') {
-        result = await this.publishInstagram(channel, property, captionWithLink);
+        result = await this.publishInstagram(channel, property, captionWithLink, {
+          companyId: property.companyId,
+          postPackageId: postPackage.id,
+          publisherUserId: input.publisherUserId,
+          placementId: placement.id,
+        });
       } else {
         throw new BadRequestException(`Platform ${channel.platform} not yet supported`);
       }
@@ -532,30 +546,139 @@ Output ONLY the caption text itself, no commentary.`;
     channel: { externalId: string | null; name: string },
     property: {
       code: string;
+      type?: string;
+      area?: string | null;
+      priceAed?: { toString(): string } | null;
+      companyId: string;
       media: { file: { id: string; mimeType: string } }[];
     },
     caption: string,
-  ) {
+    ctx: {
+      companyId: string;
+      postPackageId: string;
+      publisherUserId: string;
+      placementId: string;
+    },
+  ): Promise<{ externalPostId: string; externalUrl: string | null }> {
     const igUserId = channel.externalId!;
     const photos = property.media.filter((m) => m.file.mimeType.startsWith('image/'));
-    const photoUrls = photos.map((m) => `${PUBLIC_API_BASE}/public/files/${m.file.id}`);
-    if (photoUrls.length === 0) {
+    if (photos.length === 0) {
       throw new Error(
         `Instagram requires at least one image for property ${property.code} — none on file`,
       );
     }
-    if (photoUrls.length === 1) {
+
+    // Build the base photo URLs in the operator's order (no auto-reorder).
+    const photoUrls = photos.map((m) => `${PUBLIC_API_BASE}/public/files/${m.file.id}`);
+
+    // Pick the carousel variant for this publish by counting prior
+    // IG-channel placements for this package. Rotation = count % 4 so
+    // consecutive publishes for the same property always look different.
+    const priorIgCount = await this.prisma.postPlacement.count({
+      where: {
+        postPackageId: ctx.postPackageId,
+        channelKind: 'instagram',
+        externalPostId: { not: 'pending' },
+      },
+    });
+    const variantIndex = priorIgCount % this.carouselRenderer.variantCount;
+
+    // Single-photo IG posts don't render as a carousel — fall back to a
+    // simple post but still apply the hook overlay so the photo lands.
+    if (photoUrls.length === 1 && property.priceAed && property.area && property.type) {
+      const hookBuffer = await this.fetchBuffer(photoUrls[0]!);
+      const rendered = await this.carouselRenderer.renderAndStoreSlides({
+        companyId: ctx.companyId,
+        uploadedById: ctx.publisherUserId,
+        postPackageId: ctx.postPackageId,
+        variantIndex,
+        hookPhoto: hookBuffer,
+        ctaPhoto: hookBuffer, // unused on the single path but the API needs both
+        overlay: {
+          priceAed: Number(property.priceAed),
+          type: property.type,
+          area: property.area,
+        },
+        publicBaseUrl: PUBLIC_API_BASE,
+      });
+      await this.prisma.postPlacement.update({
+        where: { id: ctx.placementId },
+        data: { carouselVariant: rendered.variantIndex },
+      });
       return this.meta.postInstagramSingle({
         igUserId,
-        photoUrl: photoUrls[0]!,
+        photoUrl: rendered.hookUrl,
         caption,
       });
     }
-    return this.meta.postInstagramCarousel({
-      igUserId,
-      photoUrls,
-      caption,
-    });
+
+    // True carousel — slide 1 = rendered hook, slides 2..N-1 = originals,
+    // slide N = rendered CTA. Cap at 10 (IG limit).
+    if (property.priceAed && property.area && property.type) {
+      const slideCount = Math.min(photoUrls.length, 10);
+      const slidesUrls = photoUrls.slice(0, slideCount);
+      const hookBuf = await this.fetchBuffer(slidesUrls[0]!);
+      const ctaBuf = await this.fetchBuffer(slidesUrls[slideCount - 1]!);
+      const rendered = await this.carouselRenderer.renderAndStoreSlides({
+        companyId: ctx.companyId,
+        uploadedById: ctx.publisherUserId,
+        postPackageId: ctx.postPackageId,
+        variantIndex,
+        hookPhoto: hookBuf,
+        ctaPhoto: ctaBuf,
+        overlay: {
+          priceAed: Number(property.priceAed),
+          type: property.type,
+          area: property.area,
+        },
+        publicBaseUrl: PUBLIC_API_BASE,
+      });
+      // Replace first + last URLs with rendered overlays.
+      const finalUrls = [rendered.hookUrl, ...slidesUrls.slice(1, -1), rendered.ctaUrl];
+      await this.prisma.postPlacement.update({
+        where: { id: ctx.placementId },
+        data: { carouselVariant: rendered.variantIndex },
+      });
+      return this.meta.postInstagramCarousel({
+        igUserId,
+        photoUrls: finalUrls,
+        caption,
+      });
+    }
+
+    // Missing price/area/type — fall back to the legacy un-overlayed
+    // carousel so the publish doesn't fail just because overlay data is
+    // incomplete. The caption still works.
+    this.logger.warn(
+      `Skipping carousel overlay for ${property.code}: missing priceAed/area/type. Publishing photos as-is.`,
+    );
+    return this.meta.postInstagramCarousel({ igUserId, photoUrls, caption });
+  }
+
+  /** Pull bytes for a public RentFlow file URL — used by the carousel
+   *  renderer so it can composite an overlay on the source photo. */
+  private async fetchBuffer(url: string): Promise<Buffer> {
+    const m = url.match(/\/public\/files\/([^/?]+)$/);
+    if (m && m[1]) {
+      // In-process read is faster than HTTP round-trip when the file lives
+      // on the same box. The renderer always runs in the same process so
+      // this works in dev + Docker. Falls through to fetch on a miss.
+      try {
+        const found = await this.prisma.fileUpload.findFirst({
+          where: { id: m[1] },
+          select: { companyId: true },
+        });
+        if (found) {
+          const { buffer } = await this.files.read(found.companyId, m[1]);
+          return buffer;
+        }
+      } catch {
+        // Fall through to fetch.
+      }
+    }
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
+    return Buffer.from(await resp.arrayBuffer());
   }
 
   private appendTrackingLink(caption: string, url: string, platform: string): string {
@@ -589,12 +712,11 @@ Output ONLY the caption text itself, no commentary.`;
 // prompt builders
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(platform: string, language: 'en' | 'es' | 'ar'): string {
-  const langLine = {
-    en: 'Write in clear, concise English.',
-    es: 'Escribe en español neutro y natural.',
-    ar: 'اكتب بالعربية الفصيحة الواضحة.',
-  }[language];
+function buildSystemPrompt(platform: string, _language: 'en' | 'es' | 'ar'): string {
+  // English ONLY across all owned channels — RentFlow's audience is
+  // Dubai expats. The `language` param is kept for signature stability
+  // (other callers pass channel-name inference) but ignored.
+  const langLine = 'Write in clear, concise English.';
 
   const platformGuide = {
     telegram: `Telegram channel post — 200 to 400 characters. Telegram sends multiple photos as an album with ONE caption. Lead with the strongest hook (location + standout perk → "Despertar viendo el Burj Al Arab"). Then a 2-3 line value prop translating features into benefits, NOT specs. Then the rent (AED). Then a one-line CTA. Use 1-3 emojis sparingly for visual hierarchy. Keep paragraphs short for mobile reading.`,

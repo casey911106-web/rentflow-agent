@@ -1021,6 +1021,10 @@ model PostPlacement {
 
   /// True when posted by an automated adapter (bot) vs. a human field agent.
   automated      Boolean   @default(false)
+  /// IG carousel variant index used for this placement (0..3) — rotates per
+  /// publish so consecutive auto-posts for the same package don't look the
+  /// same. Null on non-IG placements.
+  carouselVariant Int?
   /// Caption/body that was actually published — kept here so we can audit
   /// what the lead saw and re-post the exact text if something needs editing.
   caption        String?

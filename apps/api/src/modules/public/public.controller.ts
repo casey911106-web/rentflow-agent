@@ -146,16 +146,32 @@ export class PublicController {
   @Public()
   @Get('files/:id')
   async streamFile(@Param('id') id: string, @Res() res: Response) {
-    // Only stream files that are linked to PropertyMedia. Anything else
-    // (audit attachments, contracts, etc) stays auth-gated through /files/:id.
+    // Allowlist of publicly serveable FileUploads:
+    //   1) Anything linked to PropertyMedia (marketplace photos)
+    //   2) FileUploads tagged with ownerEntityType='CarouselSlide' — the
+    //      hook/CTA overlay renders the carousel renderer generates, which
+    //      Instagram Graph API needs to fetch by public URL.
+    // Anything else (contracts, audit attachments) stays auth-gated.
+    let companyId: string | null = null;
     const isPublicPhoto = await this.prisma.propertyMedia.findFirst({
       where: { fileUploadId: id },
       select: { id: true, file: { select: { companyId: true } } },
     });
-    if (!isPublicPhoto || !isPublicPhoto.file) throw new NotFoundException();
+    if (isPublicPhoto?.file) {
+      companyId = isPublicPhoto.file.companyId;
+    } else {
+      const carouselFile = await this.prisma.fileUpload.findFirst({
+        where: { id, ownerEntityType: 'CarouselSlide' },
+        select: { companyId: true },
+      });
+      if (carouselFile) {
+        companyId = carouselFile.companyId;
+      }
+    }
+    if (!companyId) throw new NotFoundException();
 
     try {
-      const { file, buffer } = await this.files.read(isPublicPhoto.file.companyId, id);
+      const { file, buffer } = await this.files.read(companyId, id);
       res.setHeader('Content-Type', file.mimeType);
       res.setHeader('Content-Length', buffer.length);
       res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
