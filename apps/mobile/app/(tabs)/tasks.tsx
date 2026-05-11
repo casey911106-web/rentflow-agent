@@ -538,10 +538,41 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
                     </Pressable>
                   ) : null}
                 </View>
-                {p.externalUrl ? <Text style={{ color: '#00A7A5', fontSize: 11 }}>{p.externalUrl}</Text> : null}
                 <Text style={{ color: '#64748B', fontSize: 11 }}>
                   {p.channelKind ?? '—'}{p.groupSize ? ` · ${p.groupSize.toLocaleString()} members` : ''}
                 </Text>
+                {/* Open live post — lets the publisher verify the group admin
+                    didn't filter/reject the submission. Tap opens FB / WA
+                    group post in the native app via expo-linking. If the
+                    publisher didn't capture an externalUrl when confirming
+                    we render a placeholder reminding them to add it. */}
+                {p.externalUrl ? (
+                  <Pressable
+                    onPress={() => Linking.openURL(p.externalUrl!).catch(() => {
+                      Alert.alert('Open failed', 'Could not open the post. Copy the URL manually:\n\n' + p.externalUrl);
+                    })}
+                    hitSlop={8}
+                    style={{
+                      marginTop: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      paddingVertical: 8,
+                      backgroundColor: '#EFF6FF',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <Ionicons name="open-outline" size={14} color="#1D4ED8" />
+                    <Text style={{ color: '#1D4ED8', fontSize: 12, fontWeight: '700' }}>
+                      Open live post — verify it's visible
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Text style={{ color: '#94A3B8', fontSize: 11, marginTop: 6, fontStyle: 'italic' }}>
+                    No URL captured · add one next time so you can verify the post stays live
+                  </Text>
+                )}
               </View>
             ))}
           </View>
