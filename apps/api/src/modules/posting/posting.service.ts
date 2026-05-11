@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { buildClickToChatUrl } from '@rentflow/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ContentService } from '../content/content.service';
@@ -13,6 +13,8 @@ const READINESS_GATE = 50;
 
 @Injectable()
 export class PostingService {
+  private readonly logger = new Logger(PostingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly content: ContentService,
@@ -263,7 +265,9 @@ export class PostingService {
     const postCode = await this.uniquePostCode();
     const whatsappUrl = buildClickToChatUrl({ propertyCode: sourceCode, postCode, waMeBaseUrl: waBase });
 
-    const captions = this.buildCaptions({
+    // Template-derived price/availability lines for the mobile UI's
+    // "Caption to use" block — those are atomic facts, not copywriter output.
+    const fallback = this.buildCaptions({
       propertyName: property.name,
       propertyArea: property.area,
       propertyCode: sourceCode,
@@ -272,7 +276,33 @@ export class PostingService {
       whatsappUrl,
       waLocal,
     });
-    const { priceLine, availabilityLine, shortCaption, longCaption, whatsappCaption, facebookCaption } = captions;
+    const { priceLine, availabilityLine } = fallback;
+
+    // AI-generated copywriter-grade captions per channel. Falls back to the
+    // template versions if the AI call fails (e.g. provider outage) so a
+    // generate() never errors out solely on copy generation.
+    const trackingShortUrl = `${process.env.TRACKING_BASE_URL ?? 'http://localhost:3001/t'}/${postCode}`;
+    const marketplaceUrl = `${process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app'}/p/${sourceCode}`;
+    let shortCaption = fallback.shortCaption;
+    let longCaption = fallback.longCaption;
+    let whatsappCaption = fallback.whatsappCaption;
+    let facebookCaption = fallback.facebookCaption;
+    try {
+      const ai = await this.content.generateFastPostingCaptions({
+        propertyId: property.id,
+        marketplaceUrl,
+        whatsappUrl,
+        trackingShortUrl,
+      });
+      whatsappCaption = ai.whatsapp;
+      facebookCaption = ai.facebook;
+      longCaption = ai.classifieds;
+      // shortCaption stays as the template one — it's a fallback used by
+      // mobile when whatsappCaption is missing; AI's whatsapp variant is
+      // the canonical short-form copy.
+    } catch (err) {
+      this.logger.warn(`AI caption generation failed for property ${property.id}; using templates: ${(err as Error).message}`);
+    }
 
     const pkg = await this.prisma.postPackage.create({
       data: {
@@ -303,6 +333,59 @@ export class PostingService {
     });
 
     return pkg;
+  }
+
+  /** Re-roll the AI-generated Fast Posting captions on an existing package.
+   *  Pass `differentAngle` (e.g. "more urgent" / "lean luxury" / "no pregunta
+   *  retórica") to vary the hook from whatever was previously generated. */
+  async regenerateCaptions(
+    companyId: string,
+    packageId: string,
+    body: { differentAngle?: string } = {},
+  ) {
+    const pkg = await this.prisma.postPackage.findFirst({
+      where: { id: packageId, companyId, deletedAt: null },
+      include: { trackingLink: true, property: { select: { id: true, code: true } } },
+    });
+    if (!pkg) throw new NotFoundException('PostPackage not found');
+    if (!pkg.propertyId || !pkg.property) {
+      throw new BadRequestException('Caption regeneration is for property listings only');
+    }
+    if (!pkg.trackingLink) {
+      throw new BadRequestException('Package has no tracking link');
+    }
+
+    const setting = await this.prisma.appSetting.findFirst({
+      where: { companyId, key: 'whatsapp.business_number' },
+    });
+    const waBase =
+      (setting?.value as { waMeBase?: string } | undefined)?.waMeBase ??
+      process.env.WHATSAPP_BUSINESS_WA_ME_BASE_URL ??
+      'https://wa.me/971585063316';
+    const whatsappUrl = buildClickToChatUrl({
+      propertyCode: pkg.property.code,
+      postCode: pkg.trackingLink.postCode,
+      waMeBaseUrl: waBase,
+    });
+    const marketplaceUrl = `${process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app'}/p/${pkg.property.code}`;
+
+    const ai = await this.content.generateFastPostingCaptions({
+      propertyId: pkg.propertyId,
+      marketplaceUrl,
+      whatsappUrl,
+      trackingShortUrl: pkg.trackingLink.shortUrl,
+      differentAngle: body.differentAngle,
+    });
+
+    return this.prisma.postPackage.update({
+      where: { id: packageId },
+      data: {
+        whatsappCaption: ai.whatsapp,
+        facebookCaption: ai.facebook,
+        longCaption: ai.classifieds,
+      },
+      include: { property: true, trackingLink: true },
+    });
   }
 
   async update(
@@ -553,6 +636,8 @@ export class PostingService {
     targetKind: string;
     targetLabel: string;
     extraContext?: string;
+    /** Pass on regeneration to nudge a different hook angle. */
+    differentAngle?: string;
   }) {
     if (!body.targetLabel?.trim()) {
       throw new BadRequestException('targetLabel is required');
@@ -561,6 +646,7 @@ export class PostingService {
       targetKind: body.targetKind ?? 'other',
       targetLabel: body.targetLabel.trim(),
       extraContext: body.extraContext?.trim() || undefined,
+      differentAngle: body.differentAngle?.trim() || undefined,
     });
   }
 

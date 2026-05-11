@@ -150,7 +150,7 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: ()
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function generateCaption() {
+  async function generateCaption(differentAngle?: string) {
     if (!targetLabel.trim()) {
       setError('Fill the channel name first so the AI knows what to promote.');
       return;
@@ -162,7 +162,7 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: ()
         '/admin/growth-campaigns/draft-caption',
         {
           method: 'POST',
-          body: JSON.stringify({ targetKind, targetLabel }),
+          body: JSON.stringify({ targetKind, targetLabel, ...(differentAngle ? { differentAngle } : {}) }),
         },
       );
       setCaption(res.caption);
@@ -211,16 +211,31 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: ()
       </Field>
 
       <div>
-        <div className="mb-1 flex items-center justify-between">
+        <div className="mb-1 flex items-center justify-between gap-2">
           <span className="block text-xs font-semibold uppercase tracking-wide text-gray-medium">Caption to publish</span>
-          <button
-            type="button"
-            onClick={generateCaption}
-            disabled={generating}
-            className="rounded-md border border-teal/40 bg-teal/10 px-2 py-1 text-xs font-semibold text-teal hover:bg-teal/20 disabled:opacity-60"
-          >
-            {generating ? 'Generating…' : '✨ Generate with AI'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => generateCaption()}
+              disabled={generating}
+              className="rounded-md border border-teal/40 bg-teal/10 px-2 py-1 text-xs font-semibold text-teal hover:bg-teal/20 disabled:opacity-60"
+            >
+              {generating ? 'Generating…' : caption ? '🎲 Otro ángulo' : '✨ Generate with AI'}
+            </button>
+            {caption ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const hint = window.prompt('¿Qué cambiar? ej: "más urgente", "menos pregunta", "tono insider"');
+                  if (hint) generateCaption(hint);
+                }}
+                disabled={generating}
+                className="rounded-md border border-gray-light bg-white px-2 py-1 text-xs font-semibold text-gray-dark hover:bg-offwhite disabled:opacity-60"
+              >
+                ✎ Con hint
+              </button>
+            ) : null}
+          </div>
         </div>
         <textarea
           required

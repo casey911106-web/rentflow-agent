@@ -97,6 +97,165 @@ export class ContentService {
     return { caption, modelId: response.model ?? modelId };
   }
 
+  /** Ask Claude for the THREE Fast Posting captions a publisher will paste:
+   *  one for WhatsApp groups, one for Facebook groups, one for classifieds
+   *  (PropertyFinder/Dubizzle). Each caption follows a 4-part copywriter
+   *  framework — Hook, What, Proof/Scarcity, CTA — with channel-specific
+   *  length, tone, and emoji rules. Returns plain text per channel.
+   *
+   *  Pass `differentAngle` to regenerate with a hint to vary the hook from
+   *  whatever was previously picked.
+   */
+  async generateFastPostingCaptions(input: {
+    propertyId: string;
+    /** Public marketplace URL for this property — gets embedded in Facebook/Classifieds variants. */
+    marketplaceUrl: string;
+    /** Click-to-chat WhatsApp URL — embedded in the WhatsApp variant. */
+    whatsappUrl: string;
+    /** Tracking link short URL (e.g. https://rentflow-api.../t/POST-XYZ) — used as the placement-trackable variant. */
+    trackingShortUrl: string;
+    /** Hint for regeneration to avoid repeating the prior hook. */
+    differentAngle?: string;
+  }): Promise<{ whatsapp: string; facebook: string; classifieds: string; modelId: string }> {
+    const property = await this.prisma.property.findUnique({
+      where: { id: input.propertyId },
+      select: {
+        code: true,
+        name: true,
+        type: true,
+        area: true,
+        addressLine: true,
+        priceAed: true,
+        depositAed: true,
+        occupancyMax: true,
+        rentalMinMonths: true,
+        description: true,
+        moveInDate: true,
+      },
+    });
+    if (!property) throw new NotFoundException(`Property ${input.propertyId} not found`);
+
+    const systemPrompt = `You are a senior real-estate copywriter for a Dubai rental agency. Field agents paste your captions into WhatsApp groups, Facebook rental groups, and classified sites. The goal is conversions — a renter messages within minutes of seeing the post.
+
+Output THREE captions for the same property, one per channel: \`whatsapp\`, \`facebook\`, \`classifieds\`. Every caption MUST follow this 4-part structure:
+
+1. HOOK (line 1) — make them stop scrolling. Use ONE of these patterns:
+   • Specific number ("AED 8,000/mes con balcón panorámico — Burj Al Arab a 2km")
+   • Provocative question ("¿Cansado de Madinat Jumeirah overpriced?")
+   • Sensory image ("Tu café de la mañana con vista al Burj Al Arab")
+   • Scarcity ("3 unidades a este precio · viewings empiezan mañana")
+   • Social proof ("3 leads en 2 horas, queda este uno")
+   FORBIDDEN: "Available now" alone, "Hello everyone", "Check this out", "Amazing apartment".
+
+2. WHAT (2-3 lines) — translate features into BENEFITS, not specs:
+   • "Balcón privado" → "tu café de la mañana con vista al puerto"
+   • "Walking distance to Metro" is OK only if explicitly in data
+   • Don't invent features not in the property data
+
+3. PROOF / SCARCITY (1 line, optional but encouraged) — pick one:
+   • "Direct from owner, no agency fees through us"
+   • "Furnished, includes wifi + housekeeping"
+   • "Last unit at this price"
+   • "Move-in this week"
+
+4. CTA + LINK (1-2 lines) — one clear next step.
+   • whatsapp variant uses the WhatsApp URL provided.
+   • facebook + classifieds variants use the marketplace URL.
+
+CHANNEL-SPECIFIC RULES — strict:
+
+\`whatsapp\`: 4-6 lines max. Direct, urgent. Max 2 emojis. End with the WhatsApp click-to-chat URL on its own line. Do NOT include rent/deposit/commission as a labeled list — weave them into prose because WA users skim.
+
+\`facebook\`: 8-12 lines. Open with community phrasing ("Hola grupo", "Para quien estaba buscando…"). More breathing room with line breaks. Include rent + deposit + commission EXPLICITLY (one number per line). Sign off with marketplace URL.
+
+\`classifieds\`: 12-20 lines, formal, factual. NO emojis. NO informal hook — first line is a clean property title (e.g. "1BR Furnished Apartment — Madinat Jumeirah Living"). Use ALL-CAPS section headers (INTERIOR, BUILDING, TERMS). Under TERMS, list the three numbers explicitly:
+  • Rent: AED X / month
+  • Refundable deposit: AED Y
+  • Commission (one-time, on deal close): AED Z
+End with marketplace URL + "Agent WhatsApp: <local number> — quote code <code>".
+
+LANGUAGE — for Dubai rental groups, mix EN/ES organically. Default ~70% English, ~30% Spanish phrasing. Avoid "amazing", "super luxurious", "stunning" without proof — let the photo + the price say it.
+
+NEVER LIE — if a feature isn't in the property data, don't invent it. If the description mentions amenities, you can use them. The 3 mandatory numbers (rent / deposit / commission) come from the data; commission is calculated by bedroom count: studio/1BR = AED 1,000; 2-3BR = AED 2,000; 4+/villa = AED 3,000.
+
+OUTPUT — JSON object only, no other text:
+{
+  "whatsapp": "...",
+  "facebook": "...",
+  "classifieds": "..."
+}`;
+
+    const bedrooms =
+      property.type === 'studio'
+        ? 0
+        : property.type === 'one_bedroom'
+        ? 1
+        : property.type === 'two_bedroom'
+        ? 2
+        : property.type === 'three_bedroom'
+        ? 3
+        : property.type === 'villa'
+        ? 4
+        : 1;
+    const commission = bedrooms <= 1 ? 1000 : bedrooms <= 3 ? 2000 : 3000;
+    const priceLine = property.priceAed
+      ? `AED ${Number(property.priceAed).toLocaleString()} / month`
+      : 'TBC';
+    const depositLine = property.depositAed
+      ? `AED ${Number(property.depositAed).toLocaleString()} (refundable)`
+      : 'TBC';
+    const userPrompt = `Property data:
+- Code: ${property.code}
+- Name: ${property.name}
+- Type: ${property.type.replace(/_/g, ' ')}
+- Area: ${property.area ?? 'Dubai'}${property.addressLine ? ` (${property.addressLine})` : ''}
+- Rent: ${priceLine}
+- Refundable deposit: ${depositLine}
+- Commission (one-time, on close): AED ${commission.toLocaleString()}
+- Occupancy max: ${property.occupancyMax ?? 'not set'}
+- Min stay: ${property.rentalMinMonths ?? 1} month(s)
+- Move-in date: ${property.moveInDate ? property.moveInDate.toISOString().slice(0, 10) : 'flexible'}
+- Description (use as source for features, do not copy verbatim):
+${(property.description ?? '(no description provided)').slice(0, 1500)}
+
+URLs to embed:
+- Marketplace (use in facebook + classifieds): ${input.marketplaceUrl}
+- WhatsApp click-to-chat (use in whatsapp): ${input.whatsappUrl}
+${input.differentAngle ? `\nREGENERATION HINT: ${input.differentAngle}\nPick a fundamentally different hook angle than before — different emotional register, different framing.` : ''}
+
+Generate the JSON now.`;
+
+    const provider = this.aiRef.provider;
+    const modelId = process.env.AI_MODEL ?? 'claude-sonnet-4-6';
+    const response = await provider.complete({
+      systemBlocks: [{ text: systemPrompt }],
+      userPrompt,
+      maxTokens: 2000,
+      jsonSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['whatsapp', 'facebook', 'classifieds'],
+        properties: {
+          whatsapp: { type: 'string' },
+          facebook: { type: 'string' },
+          classifieds: { type: 'string' },
+        },
+      },
+      model: modelId,
+    });
+
+    const parsed = (response.parsedJson ?? {}) as { whatsapp?: string; facebook?: string; classifieds?: string };
+    if (!parsed.whatsapp || !parsed.facebook || !parsed.classifieds) {
+      throw new BadRequestException('AI did not return all three captions');
+    }
+    return {
+      whatsapp: parsed.whatsapp.trim(),
+      facebook: parsed.facebook.trim(),
+      classifieds: parsed.classifieds.trim(),
+      modelId: response.model ?? modelId,
+    };
+  }
+
   /** Ask Claude for a channel-growth promo caption. The caption gets posted
    *  in FB/WA rental groups to drive followers to one of our owned channels
    *  (Telegram, FB page, IG profile). The tracking URL is NOT embedded —
@@ -106,21 +265,53 @@ export class ContentService {
     targetKind: string;
     targetLabel: string;
     extraContext?: string;
+    /** Hint for regeneration to vary the hook from whatever was previously picked. */
+    differentAngle?: string;
   }): Promise<{ caption: string; modelId: string }> {
     const platformLabel = describeGrowthPlatform(input.targetKind);
-    const systemPrompt = `You are a copywriter for a Dubai rental agency. The user runs WhatsApp / Facebook groups for room-and-flat seekers and wants a SHORT promo post that other field agents will paste into OTHER rental-related groups, to drive followers to one of our owned channels.
+    const systemPrompt = `You are a senior copywriter for a Dubai rental agency. Field agents paste your post into OTHER rental-related Facebook/WhatsApp groups to drive followers to one of our owned channels (Telegram channel, FB page, IG profile, WhatsApp community). The job: a renter sees this in a noisy group and STOPS scrolling.
 
-Output rules:
-- 3 to 5 short lines, with line breaks
-- Open with an emoji hook (🏠 🔑 📣 🚀 ✨ — one is enough, don't spam)
-- One line about what value the channel offers (daily new listings, no scams, direct from owners, exclusive deals, fast viewings — pick what fits)
-- One CTA line inviting people to join. DO NOT include any URL — the unique tracking link is appended automatically by the system after.
-- Mix of Spanish and English where natural — most Dubai room-share users are bilingual. Default lean: ~60% English, ~40% Spanish phrases.
-- No hashtags, no markdown, no quotes, no commentary. Output ONLY the caption text itself.`;
+Every caption follows this 4-part structure:
+
+1. HOOK (line 1) — the reason they stop. Pick ONE pattern:
+   • Specific value with number ("5 unidades nuevas hoy en Marina antes de PropertyFinder")
+   • Provocative question ("¿Cansado de ver el mismo listing recycled en 10 grupos?")
+   • Sensory image ("La foto que el broker no quiere que veas")
+   • Insider angle ("Direct from owners — los listings que llegan antes a las agencias")
+   FORBIDDEN: "Follow our channel", "Join us", "Hello everyone", a lone emoji.
+
+2. VALUE PROP (1-2 lines) — concretely WHY follow. Forbidden generics:
+   ❌ "Daily new listings" alone — too vague
+   ❌ "Best deals in Dubai" — empty
+   ✓ "Listings nuevos cada día antes que salgan a PropertyFinder"
+   ✓ "Direct from owners — sin agency fees"
+   ✓ "3 viewings agendadas en lo que va de hoy"
+   ✓ "Studios en Marina desde AED 4,500 — el grupo donde se postean primero"
+
+3. PROOF / SCARCITY (1 line, optional) — why now:
+   • "Hoy se publicaron 5"
+   • "El grupo creció 200 personas esta semana"
+   • "El último listing se rentó en 4 horas"
+
+4. CTA (1 line) — frame as a "no te pierdas" not a "follow":
+   ✓ "Únete para no perderte el de mañana"
+   ✓ "Síguenos antes que el grupo se cierre"
+   ✗ "Follow us" / "Join now"
+
+CRITICAL RULES:
+- DO NOT include any URL or "{LINK}" placeholder — the unique tracking
+  link is appended automatically by the system after the caption.
+- Total: 4-7 lines, line breaks for breathing room.
+- Max 2 emojis total. No emoji on every line.
+- Mix EN/ES organically (~60% English, ~40% Spanish). Most Dubai
+  room-share users are bilingual.
+- No hashtags, no markdown, no quotes around the output.
+
+Output ONLY the caption text itself, no commentary.`;
 
     const userPrompt = `Generate a promo caption for our ${platformLabel}. Channel name: "${input.targetLabel}".${
       input.extraContext ? `\n\nExtra context: ${input.extraContext}` : ''
-    }`;
+    }${input.differentAngle ? `\n\nREGENERATION HINT: ${input.differentAngle}\nPick a fundamentally different hook angle — different emotional register, different framing.` : ''}`;
 
     const provider = this.aiRef.provider;
     const modelId = process.env.AI_MODEL ?? 'claude-sonnet-4-6';
@@ -406,16 +597,29 @@ function buildSystemPrompt(platform: string, language: 'en' | 'es' | 'ar'): stri
   }[language];
 
   const platformGuide = {
-    telegram: `Telegram channel post — 200 to 400 characters. Use 1-3 emojis sparingly to draw the eye. Lead with the strongest hook (location + standout perk). Then the price. Then a one-line CTA pushing the lead to view photos and message us. Keep paragraphs short for mobile reading.`,
-    instagram: `Instagram caption — 100 to 200 characters. Hook in first 8 words. Use 5-10 hashtags at the end (location + property type).`,
-    facebook: `Facebook page post — 150 to 300 characters. Conversational tone. No hashtags.`,
+    telegram: `Telegram channel post — 200 to 400 characters. Telegram sends multiple photos as an album with ONE caption. Lead with the strongest hook (location + standout perk → "Despertar viendo el Burj Al Arab"). Then a 2-3 line value prop translating features into benefits, NOT specs. Then the rent (AED). Then a one-line CTA. Use 1-3 emojis sparingly for visual hierarchy. Keep paragraphs short for mobile reading.`,
+    instagram: `Instagram CAROUSEL caption — 200 to 400 characters. The post will publish as a multi-photo carousel (up to 10 slides) and your caption sits below ALL of them. Job is to make the user (a) stop scrolling on slide 1, then (b) swipe to the end.
+
+Structure:
+- Line 1 = HOOK referencing the slide journey ("Desliza ➡️" / "Mira hasta la última foto" / "Slide 3 te va a sorprender"). Make them swipe.
+- Line 2 = sensory image of the BEST feature ("balcón con vista al puerto, café de la mañana incluido")
+- Line 3 = ONE killer detail people search for ("Marina, 1BR, AED 8,000")
+- Line 4 = CTA referencing DM / swipe / link in bio
+- End with 8-12 hashtags (location + property type + lifestyle: #DubaiMarina #1BRDubai #DubaiRentals etc.)`,
+    facebook: `Facebook page post — 150 to 300 characters. Conversational, no hashtags. Hook line + value prop + price + soft CTA.`,
   }[platform as 'telegram' | 'instagram' | 'facebook'] ?? 'Generic property post.';
 
-  return `You are a real-estate marketing copywriter for RentFlow Dubai. Generate a short post for the platform below from the property data the user provides.
+  return `You are a senior real-estate marketing copywriter for RentFlow Dubai. Generate a post for the platform below from the property data the user provides.
 
 ${langLine}
 
 ${platformGuide}
+
+COPY FRAMEWORK (apply within the platform's length budget):
+1. HOOK first — sensory image, specific number, or scarcity. Never "Available now" alone.
+2. Translate features into BENEFITS — "balcón privado" → "tu café de la mañana con vista al mar". Don't list specs verbatim.
+3. ONE killer fact (the rent + one location anchor).
+4. CTA — clear next step.
 
 HARD RULES:
 - Always include the monthly rent (AED).

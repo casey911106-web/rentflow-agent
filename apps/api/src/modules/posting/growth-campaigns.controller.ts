@@ -18,6 +18,8 @@ interface DraftCaptionBody {
   targetKind: string;
   targetLabel: string;
   extraContext?: string;
+  /** When regenerating, hint to vary the hook from the prior pick. */
+  differentAngle?: string;
 }
 
 @ApiTags('admin/growth-campaigns')

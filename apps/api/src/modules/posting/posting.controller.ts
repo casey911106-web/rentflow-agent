@@ -74,6 +74,18 @@ export class PostingController {
     return this.posting.listAutomatedChannels(user.companyId);
   }
 
+  /** Regenerate the WhatsApp / Facebook / classifieds captions on a package
+   *  with a fresh AI pass. Pass `{ differentAngle: "more urgent" }` to nudge
+   *  the model away from whatever hook it picked last time. */
+  @Post(':id/regenerate-captions')
+  regenerateCaptions(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: { differentAngle?: string },
+  ) {
+    return this.posting.regenerateCaptions(user.companyId, id, body);
+  }
+
   /** Generate an AI caption tailored to one automated channel. Returns text only — does not publish. */
   @Post(':id/draft-auto-caption')
   draftAutoCaption(

@@ -171,6 +171,19 @@ export default function PostPackageDetailPage({ params }: { params: { id: string
     onError: (err) => setActionError((err as Error).message),
   });
 
+  const regenerate = useMutation({
+    mutationFn: (differentAngle?: string) =>
+      api(`/post-packages/${params.id}/regenerate-captions`, {
+        method: 'POST',
+        body: JSON.stringify(differentAngle ? { differentAngle } : {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['post-package', params.id] });
+      setActionError(null);
+    },
+    onError: (err) => setActionError((err as Error).message),
+  });
+
   function setField(key: EditableField, value: string) {
     setEditable((prev) => ({ ...prev, [key]: value }));
     setDirty(true);
@@ -336,6 +349,19 @@ export default function PostPackageDetailPage({ params }: { params: { id: string
               copied={copied === 'Title'}
               rows={1}
             />
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-amber-900">✨ AI copy</p>
+                <p className="text-[11px] text-amber-800">
+                  Las captions de WhatsApp / Facebook / Clasificados se generan con IA usando hook + value prop + CTA.
+                  Si no te gusta el ángulo, regenera con un hint distinto.
+                </p>
+              </div>
+              <RegenerateButton
+                onRegenerate={(hint) => regenerate.mutate(hint || undefined)}
+                pending={regenerate.isPending}
+              />
+            </div>
             <CaptionEditor
               label="Short caption"
               hint="Under ~80 chars. For tight feeds."
@@ -1069,6 +1095,71 @@ function PlacementsPanel({ packageId, packageShortUrl }: { packageId: string; pa
           you can see which group brings the most leads.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function RegenerateButton({
+  onRegenerate,
+  pending,
+}: {
+  onRegenerate: (hint: string) => void;
+  pending: boolean;
+}) {
+  const [showHint, setShowHint] = useState(false);
+  const [hint, setHint] = useState('');
+
+  if (showHint) {
+    return (
+      <div className="flex flex-1 items-center gap-2">
+        <input
+          type="text"
+          value={hint}
+          onChange={(e) => setHint(e.target.value)}
+          placeholder='ej: "más urgente", "lean luxury", "sin pregunta"'
+          className="flex-1 rounded-md border border-amber-300 bg-white p-2 text-xs"
+          autoFocus
+        />
+        <button
+          onClick={() => {
+            onRegenerate(hint);
+            setHint('');
+            setShowHint(false);
+          }}
+          disabled={pending}
+          className="rounded-md bg-teal px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+        >
+          {pending ? 'Generando…' : 'Regenerar'}
+        </button>
+        <button
+          onClick={() => {
+            setShowHint(false);
+            setHint('');
+          }}
+          className="text-xs text-gray-medium hover:underline"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-2">
+      <button
+        onClick={() => onRegenerate('')}
+        disabled={pending}
+        className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+      >
+        {pending ? 'Regenerando…' : '🎲 Otro ángulo'}
+      </button>
+      <button
+        onClick={() => setShowHint(true)}
+        disabled={pending}
+        className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+      >
+        ✎ Con hint
+      </button>
     </div>
   );
 }
