@@ -8,6 +8,12 @@ interface LeaderboardRow {
   placements: number;
   totalClicks: number;
   attributedLeads: number;
+  assignedTotal: number;
+  assignedFulfilled: number;
+  assignedExpired: number;
+  assignedPending: number;
+  /** Fraction 0..1 — fulfilled / total assigned in the window. */
+  completionRate: number;
 }
 
 export default function PublishingLeaderboardPage() {
@@ -76,6 +82,10 @@ export default function PublishingLeaderboardPage() {
               <th className="px-4 py-3">#</th>
               <th className="px-4 py-3">Publisher</th>
               <th className="px-4 py-3">Roles</th>
+              <th className="px-4 py-3 text-right">Tasks assigned</th>
+              <th className="px-4 py-3 text-right">✓ Done</th>
+              <th className="px-4 py-3 text-right">✗ Expired</th>
+              <th className="px-4 py-3 text-right">Complete %</th>
               <th className="px-4 py-3 text-right">Placements</th>
               <th className="px-4 py-3 text-right">Clicks</th>
               <th className="px-4 py-3 text-right">Leads</th>
@@ -98,13 +108,26 @@ export default function PublishingLeaderboardPage() {
                     ))}
                   </div>
                 </td>
+                <td className="px-4 py-3 text-right font-semibold">{r.assignedTotal.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right font-semibold text-emerald-700">{r.assignedFulfilled.toLocaleString()}</td>
+                <td className={`px-4 py-3 text-right font-semibold ${r.assignedExpired > 0 ? 'text-rose-700' : 'text-gray-medium'}`}>
+                  {r.assignedExpired.toLocaleString()}
+                </td>
+                <td className={`px-4 py-3 text-right font-semibold ${
+                  r.assignedTotal === 0 ? 'text-gray-medium' :
+                  r.completionRate >= 0.8 ? 'text-emerald-700' :
+                  r.completionRate >= 0.5 ? 'text-amber-600' :
+                  'text-rose-700'
+                }`}>
+                  {r.assignedTotal === 0 ? '—' : `${Math.round(r.completionRate * 100)}%`}
+                </td>
                 <td className="px-4 py-3 text-right font-semibold">{r.placements.toLocaleString()}</td>
                 <td className="px-4 py-3 text-right font-semibold">{r.totalClicks.toLocaleString()}</td>
                 <td className="px-4 py-3 text-right font-semibold text-teal">{r.attributedLeads.toLocaleString()}</td>
               </tr>
             ))}
             {!loading && rows.length === 0 ? (
-              <tr><td className="px-4 py-6 text-center text-gray-medium" colSpan={6}>No placements logged in this window yet.</td></tr>
+              <tr><td className="px-4 py-6 text-center text-gray-medium" colSpan={10}>No activity in this window yet.</td></tr>
             ) : null}
           </tbody>
         </table>

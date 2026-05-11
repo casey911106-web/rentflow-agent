@@ -8,7 +8,14 @@ interface Viewing {
   id: string;
   status: string;
   scheduledAt: string;
-  property: { code: string; name: string; area: string | null };
+  property: {
+    code: string;
+    name: string;
+    area: string | null;
+    /** Optional — populated for field agents so they can call/WhatsApp the
+     *  owner to coordinate property access. */
+    owner: { fullName: string; phoneE164: string | null } | null;
+  };
   lead: { fullName: string | null; phoneE164: string };
 }
 
@@ -233,6 +240,11 @@ export default function TodayScreen() {
               <Text style={{ color: '#64748B', fontSize: 12, marginTop: 6 }}>
                 Lead: {item.lead.fullName ?? item.lead.phoneE164}
               </Text>
+              {item.property.owner ? (
+                <Text style={{ color: '#0F766E', fontSize: 12, marginTop: 2, fontWeight: '600' }}>
+                  Owner: {item.property.owner.fullName}{item.property.owner.phoneE164 ? ` · ${item.property.owner.phoneE164}` : ''}
+                </Text>
+              ) : null}
             </Pressable>
           );
         }}

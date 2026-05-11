@@ -77,7 +77,14 @@ export class FieldAgentsController {
 
     return this.prisma.viewing.findMany({
       where: { fieldAgentId: fa.id, scheduledAt: { gte: startUTC, lte: endUTC } },
-      include: { property: true, lead: true },
+      include: {
+        // Include the property's owner so the field agent can call/whatsapp
+        // them to coordinate access (keys, lockbox code, gate buzzer).
+        // Owner phone is sensitive — only field agents see it via this
+        // self-scoped endpoint (`/me/today`), not anywhere public.
+        property: { include: { owner: { select: { fullName: true, phoneE164: true } } } },
+        lead: true,
+      },
       orderBy: { scheduledAt: 'asc' },
     });
   }

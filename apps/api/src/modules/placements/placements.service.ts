@@ -361,24 +361,58 @@ export class PlacementsService {
     const since = new Date();
     since.setDate(since.getDate() - sinceDays);
 
-    const placements = await this.prisma.postPlacement.findMany({
-      where: { companyId, publishedAt: { gte: since }, removedAt: null },
-      select: {
-        publisherUserId: true,
-        clicks: true,
-        _count: { select: { attributedLeads: true } },
-      },
-    });
-    if (placements.length === 0) return [];
+    const [placements, assignments] = await Promise.all([
+      this.prisma.postPlacement.findMany({
+        where: { companyId, publishedAt: { gte: since }, removedAt: null },
+        select: {
+          publisherUserId: true,
+          clicks: true,
+          _count: { select: { attributedLeads: true } },
+        },
+      }),
+      // Pull every assignment that LANDED in the window — fulfilled/expired
+      // both count, so ops can see drop-off per publisher.
+      this.prisma.postAssignment.findMany({
+        where: { companyId, assignedAt: { gte: since } },
+        select: { assigneeUserId: true, status: true },
+      }),
+    ]);
 
-    const acc = new Map<string, { placements: number; clicks: number; leads: number }>();
+    interface Bucket {
+      placements: number;
+      clicks: number;
+      leads: number;
+      assignedTotal: number;
+      assignedFulfilled: number;
+      assignedExpired: number;
+      assignedPending: number;
+    }
+    const blankBucket = (): Bucket => ({
+      placements: 0,
+      clicks: 0,
+      leads: 0,
+      assignedTotal: 0,
+      assignedFulfilled: 0,
+      assignedExpired: 0,
+      assignedPending: 0,
+    });
+    const acc = new Map<string, Bucket>();
     for (const p of placements) {
-      const cur = acc.get(p.publisherUserId) ?? { placements: 0, clicks: 0, leads: 0 };
+      const cur = acc.get(p.publisherUserId) ?? blankBucket();
       cur.placements += 1;
       cur.clicks += p.clicks;
       cur.leads += p._count.attributedLeads;
       acc.set(p.publisherUserId, cur);
     }
+    for (const a of assignments) {
+      const cur = acc.get(a.assigneeUserId) ?? blankBucket();
+      cur.assignedTotal += 1;
+      if (a.status === 'fulfilled') cur.assignedFulfilled += 1;
+      else if (a.status === 'expired') cur.assignedExpired += 1;
+      else if (a.status === 'pending') cur.assignedPending += 1;
+      acc.set(a.assigneeUserId, cur);
+    }
+    if (acc.size === 0) return [];
 
     const userIds = Array.from(acc.keys());
     const users = await this.prisma.user.findMany({
@@ -390,11 +424,17 @@ export class PlacementsService {
     return userIds
       .map((id) => {
         const m = acc.get(id)!;
+        const completionRate = m.assignedTotal > 0 ? m.assignedFulfilled / m.assignedTotal : 0;
         return {
           user: userMap.get(id) ?? null,
           placements: m.placements,
           totalClicks: m.clicks,
           attributedLeads: m.leads,
+          assignedTotal: m.assignedTotal,
+          assignedFulfilled: m.assignedFulfilled,
+          assignedExpired: m.assignedExpired,
+          assignedPending: m.assignedPending,
+          completionRate, // 0..1
         };
       })
       // Rank by leads first (real conversions), tiebreak on clicks.

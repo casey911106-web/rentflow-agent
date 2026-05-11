@@ -160,7 +160,15 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
   const photo = isGrowth ? a.growthMedia?.[0]?.file : prop?.media?.[0]?.file;
   const assignedAt = new Date(a.assignedAt);
   const windowEnd = new Date(assignedAt.getTime() + 60 * 60 * 1000); // 1h ideal window
-  const hoursLeft = Math.max(0, Math.floor((new Date(a.expiresAt).getTime() - Date.now()) / 3_600_000));
+  // TTL is 1h now, so hour-rounding always shows 0. Display minutes
+  // remaining; if > 60 min (e.g. legacy 24h assignments still in flight),
+  // fall back to a "Xh Ymin" label.
+  const minutesLeft = Math.max(0, Math.floor((new Date(a.expiresAt).getTime() - Date.now()) / 60_000));
+  const timeLeftLabel =
+    minutesLeft >= 60
+      ? `${Math.floor(minutesLeft / 60)}h ${minutesLeft % 60}min left`
+      : `${minutesLeft} min left`;
+  const isUrgent = minutesLeft <= 15;
 
   const headline = isGrowth
     ? (a.postPackage.title ?? 'Grow our channel')
@@ -203,8 +211,8 @@ function AssignmentCard({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
       <View style={{ padding: 14 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
           <Text style={{ fontWeight: '700', color: '#061D3F', flex: 1 }}>{headline}</Text>
-          <Text style={{ fontSize: 11, color: hoursLeft < 6 ? '#DC2626' : '#64748B', fontWeight: '600' }}>
-            {hoursLeft}h left
+          <Text style={{ fontSize: 11, color: isUrgent ? '#DC2626' : '#64748B', fontWeight: '600' }}>
+            {timeLeftLabel}
           </Text>
         </View>
         <Text style={{ color: '#64748B', fontSize: 12 }}>{sub}</Text>
