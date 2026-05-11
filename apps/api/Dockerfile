@@ -12,8 +12,12 @@ ENV CI=true
 # Prisma's schema engine binary needs `openssl` + `ca-certificates` at runtime;
 # the Debian slim base image ships only libssl3 by default. Without these,
 # `prisma migrate deploy` fails with "Schema engine error: undefined".
+#
+# fontconfig + fonts-dejavu-core are required by sharp's SVG text rendering
+# (librsvg → Pango → fontconfig). Without them, IG carousel overlay text
+# renders blank with a "Cannot load default config file" warning at runtime.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && apt-get install -y --no-install-recommends openssl ca-certificates fontconfig fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/* \
  && corepack enable \
  && corepack prepare pnpm@9.12.0 --activate
@@ -54,9 +58,11 @@ FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-# Same OpenSSL requirement as the base stage — Prisma's runtime engine needs it.
+# Runtime needs the same packages as `base` — Prisma engine (openssl) plus
+# the sharp/librsvg text-rendering stack (fontconfig + a font package).
+# Without fonts, IG carousel overlay text renders blank.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && apt-get install -y --no-install-recommends openssl ca-certificates fontconfig fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/* \
  && corepack enable \
  && corepack prepare pnpm@9.12.0 --activate
