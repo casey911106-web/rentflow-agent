@@ -152,6 +152,28 @@ export class LeadWorkflowRunner {
       }
     }
 
+    // Derive qualificationScore + temperature + status from however many
+    // profile fields are now collected. Without this, leads sit on
+    // `qualifying / unqualified / score=0` forever even after the AI
+    // extracted budget, area, people-count, move-in. We recompute every
+    // turn (cheap) so newly-collected fields are reflected immediately.
+    {
+      const known = countCollectedFields(lead, result.payload.extractedFields);
+      const qualificationScore = known * 20; // 0/20/40/60/80/100
+      let temperature: 'unqualified' | 'cold' | 'warm' | 'hot' = 'unqualified';
+      if (known >= 4) temperature = 'hot';
+      else if (known === 3) temperature = 'warm';
+      else if (known === 2) temperature = 'cold';
+      const scoreUpdates: Record<string, unknown> = { qualificationScore, temperature };
+      // Promote qualifying/new → qualified once 3 of 5 profile fields are
+      // known. Don't downgrade from later statuses (options_sent,
+      // viewing_*, won, opted_out, etc.).
+      if (known >= 3 && (lead.status === 'qualifying' || lead.status === 'new')) {
+        scoreUpdates.status = 'qualified';
+      }
+      await this.prisma.lead.update({ where: { id: lead.id }, data: scoreUpdates });
+    }
+
     // Server-side validation of `stateAfter` — Claude sometimes jumps to
     // suggest_property without enough profile data, or to closed without
     // an explicit close signal. Snap implausible jumps back to a
