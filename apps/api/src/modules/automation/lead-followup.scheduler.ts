@@ -129,7 +129,11 @@ export class LeadFollowupScheduler {
         continue;
       }
 
-      // Measure tier from OUR last reply.
+      // Measure tier from THE LEAD'S last inbound. (Was lastOutbound, which
+      // chained: each sent follow-up reset the clock, so the 30-min tier
+      // re-fired every 30 min indefinitely. The 4 tier names describe how
+      // long the guest has been silent — that's the inbound anchor, not
+      // our reply anchor.)
       const lastOutbound = await this.prisma.whatsAppMessage.findFirst({
         where: { conversationId: lead.whatsappConversation.id, direction: 'outbound' },
         orderBy: { createdAt: 'desc' },
@@ -141,23 +145,33 @@ export class LeadFollowupScheduler {
         continue;
       }
 
-      const minutesSinceReply = Math.floor((now - lastOutbound.createdAt.getTime()) / 60_000);
-      const tier = FOLLOWUP_TIERS.find((t) => minutesSinceReply >= t.minMin && minutesSinceReply < t.maxMin);
+      const minutesSinceInbound = Math.floor((now - lastInbound.createdAt.getTime()) / 60_000);
+      const tier = FOLLOWUP_TIERS.find((t) => minutesSinceInbound >= t.minMin && minutesSinceInbound < t.maxMin);
       if (!tier) {
         skipped++;
         continue;
       }
 
-      // Already sent THIS tier since lastOutbound? Skip.
+      // Already sent THIS tier since the lead went silent? Skip.
       const dupe = await this.prisma.suggestion.findFirst({
         where: {
           leadId: lead.id,
-          createdAt: { gte: lastOutbound.createdAt },
+          createdAt: { gte: lastInbound.createdAt },
           reasoning: { contains: `[follow-up ${tier.label}]` },
         },
         select: { id: true },
       });
       if (dupe) {
+        skipped++;
+        continue;
+      }
+
+      // Anti-spam guard: never chain two outbound messages within 25 min of
+      // each other. If our last outbound is fresher than that, even if a
+      // tier window is open, skip — operator just replied or we just sent
+      // a previous follow-up.
+      const minutesSinceOutbound = Math.floor((now - lastOutbound.createdAt.getTime()) / 60_000);
+      if (minutesSinceOutbound < 25) {
         skipped++;
         continue;
       }
