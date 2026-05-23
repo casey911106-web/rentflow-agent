@@ -112,6 +112,33 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
   const [dirty, setDirty] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [reassigningOwner, setReassigningOwner] = useState(false);
+  const [ownerSearch, setOwnerSearch] = useState('');
+
+  const { data: ownersList } = useQuery({
+    queryKey: ['owners'],
+    enabled: reassigningOwner,
+    queryFn: () =>
+      api<Array<{ id: string; fullName: string; phoneE164: string; _count: { properties: number } }>>(
+        '/owners',
+      ),
+  });
+
+  const reassignOwner = useMutation({
+    mutationFn: (newOwnerId: string | null) =>
+      api(`/properties/${params.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ownerId: newOwnerId }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['properties', params.id] });
+      qc.invalidateQueries({ queryKey: ['owners'] });
+      setReassigningOwner(false);
+      setOwnerSearch('');
+      setActionError(null);
+    },
+    onError: (err) => setActionError((err as Error).message),
+  });
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -384,22 +411,114 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
             </div>
           </div>
 
-          {/* Owner */}
-          {property.owner ? (
-            <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
-              <h3 className="mb-3 text-sm uppercase tracking-wide text-gray-medium">Owner</h3>
-              <Link
-                href={`/owners/${property.owner.id}`}
-                className="block font-semibold text-navy-deep hover:underline"
-              >
-                {property.owner.fullName}
-              </Link>
-              <p className="font-mono text-xs text-gray-medium">{property.owner.phoneE164}</p>
-              <div className="mt-2">
-                <ScoreBadge score={property.owner.trustScore} label="Trust" />
-              </div>
+          {/* Owner — read-only display + reassign picker */}
+          <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm uppercase tracking-wide text-gray-medium">Owner</h3>
+              {!reassigningOwner ? (
+                <button
+                  onClick={() => setReassigningOwner(true)}
+                  className="rounded-md border border-gray-light bg-white px-2 py-1 text-[11px] font-semibold text-gray-dark hover:bg-offwhite"
+                >
+                  {property.owner ? 'Cambiar' : 'Asignar'}
+                </button>
+              ) : null}
             </div>
-          ) : null}
+
+            {!reassigningOwner ? (
+              property.owner ? (
+                <>
+                  <Link
+                    href={`/owners/${property.owner.id}`}
+                    className="block font-semibold text-navy-deep hover:underline"
+                  >
+                    {property.owner.fullName}
+                  </Link>
+                  <p className="font-mono text-xs text-gray-medium">{property.owner.phoneE164}</p>
+                  <div className="mt-2">
+                    <ScoreBadge score={property.owner.trustScore} label="Trust" />
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-gray-medium">Sin dueño asignado.</p>
+              )
+            ) : (
+              <div>
+                <input
+                  type="text"
+                  value={ownerSearch}
+                  onChange={(e) => setOwnerSearch(e.target.value)}
+                  placeholder="Buscar por nombre o teléfono…"
+                  className="mb-2 w-full rounded-md border border-gray-light px-2 py-1.5 text-sm focus:border-teal focus:outline-none"
+                  autoFocus
+                />
+                <ul className="max-h-56 overflow-y-auto rounded-md border border-gray-light">
+                  {!ownersList ? (
+                    <li className="px-3 py-2 text-xs text-gray-medium">Cargando…</li>
+                  ) : (
+                    (() => {
+                      const q = ownerSearch.trim().toLowerCase();
+                      const filtered = ownersList.filter(
+                        (o) =>
+                          !q ||
+                          o.fullName.toLowerCase().includes(q) ||
+                          o.phoneE164.includes(q),
+                      );
+                      if (filtered.length === 0) {
+                        return <li className="px-3 py-2 text-xs text-gray-medium">Sin coincidencias.</li>;
+                      }
+                      return filtered.slice(0, 20).map((o) => {
+                        const isCurrent = property.owner?.id === o.id;
+                        return (
+                          <li key={o.id}>
+                            <button
+                              onClick={() => reassignOwner.mutate(o.id)}
+                              disabled={isCurrent || reassignOwner.isPending}
+                              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-offwhite disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <span className="min-w-0 truncate">
+                                <span className="font-semibold text-navy-deep">{o.fullName}</span>
+                                <span className="ml-2 font-mono text-[11px] text-gray-medium">
+                                  {o.phoneE164}
+                                </span>
+                              </span>
+                              <span className="shrink-0 text-[11px] text-gray-medium">
+                                {isCurrent ? '✓ actual' : `${o._count.properties} props`}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      });
+                    })()
+                  )}
+                </ul>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {property.owner ? (
+                    <button
+                      onClick={() => {
+                        if (confirm('¿Quitar el dueño de esta propiedad?')) {
+                          reassignOwner.mutate(null);
+                        }
+                      }}
+                      disabled={reassignOwner.isPending}
+                      className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      Quitar dueño
+                    </button>
+                  ) : null}
+                  <button
+                    onClick={() => {
+                      setReassigningOwner(false);
+                      setOwnerSearch('');
+                    }}
+                    className="rounded-md border border-gray-light bg-white px-3 py-1.5 text-xs font-semibold text-gray-dark hover:bg-offwhite"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Availability blocks */}
           <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">

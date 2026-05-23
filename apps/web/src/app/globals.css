@@ -8,13 +8,13 @@
   }
 
   h1 {
-    @apply text-3xl font-bold text-navy-deep;
+    @apply text-2xl font-bold text-navy-deep md:text-3xl;
   }
   h2 {
-    @apply text-2xl font-bold text-navy;
+    @apply text-xl font-bold text-navy md:text-2xl;
   }
   h3 {
-    @apply text-lg font-semibold text-near-black;
+    @apply text-base font-semibold text-near-black md:text-lg;
   }
 }
 

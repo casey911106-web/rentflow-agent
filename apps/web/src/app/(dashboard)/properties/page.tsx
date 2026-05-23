@@ -76,7 +76,44 @@ export default function PropertiesPage() {
         </div>
       </header>
 
-      <div className="overflow-x-auto rounded-md border border-gray-light bg-white shadow-card">
+      {/* Mobile: card list */}
+      <ul className="space-y-2 md:hidden">
+        {isLoading ? (
+          <li className="rounded-md border border-gray-light bg-white p-4 text-center text-sm text-gray-medium">Loading…</li>
+        ) : !filtered.length ? (
+          <li className="rounded-md border border-gray-light bg-white p-4 text-center text-sm text-gray-medium">
+            {statusFilter === 'all' ? 'No properties yet.' : 'No properties match this filter.'}
+          </li>
+        ) : (
+          filtered.map((p) => (
+            <li key={p.id} className="rounded-md border border-gray-light bg-white shadow-card">
+              <Link href={`/properties/${p.id}`} className="block p-3 hover:bg-offwhite">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-navy-deep">{p.name}</p>
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-gray-medium">
+                      {p.code} · {p.type.replace(/_/g, ' ')} {p.area ? `· ${p.area}` : ''}
+                    </p>
+                  </div>
+                  <StatusPill status={p.status} />
+                </div>
+                <p className="mt-2 text-xs text-gray-dark">
+                  {p.priceAed ? `AED ${Number(p.priceAed).toLocaleString()}` : '—'}
+                  {p.owner ? ` · ${p.owner.fullName}` : ' · sin dueño'}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <ScoreBadge score={p.readinessScore} label="Ready" />
+                  <ScoreBadge score={p.qualityScore} label="Qual" />
+                  <span className="text-[11px] text-gray-medium">{p._count.leads} leads</span>
+                </div>
+              </Link>
+            </li>
+          ))
+        )}
+      </ul>
+
+      {/* Desktop / tablet: table */}
+      <div className="hidden overflow-x-auto rounded-md border border-gray-light bg-white shadow-card md:block">
         <table className="w-full min-w-[680px] text-left text-sm">
           <thead className="bg-offwhite text-xs uppercase tracking-wide text-gray-medium">
             <tr>
