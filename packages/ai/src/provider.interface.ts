@@ -13,6 +13,18 @@ export interface SystemBlock {
   cacheControl?: 'ephemeral';
 }
 
+/**
+ * Optional image attachment for the user turn. Used when a WhatsApp guest
+ * sent a screenshot of the property they want and we need Claude to "see"
+ * which listing they're pointing at.
+ */
+export interface UserImage {
+  /** Base64-encoded image payload (no data: prefix). */
+  base64: string;
+  /** image/jpeg, image/png, image/webp, image/gif. */
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+}
+
 export interface AiCompleteOptions {
   /** Optional plain string system prompt (no caching). */
   systemPrompt?: string;
@@ -23,6 +35,12 @@ export interface AiCompleteOptions {
   systemBlocks?: SystemBlock[];
   /** The user message. */
   userPrompt: string;
+  /**
+   * Optional images attached to the user turn (vision input). Sent in
+   * order, before the userPrompt text. The provider may ignore these if
+   * the underlying model doesn't support vision.
+   */
+  userImages?: UserImage[];
   variables?: Record<string, string | number | boolean | null>;
   maxTokens?: number;
   /**

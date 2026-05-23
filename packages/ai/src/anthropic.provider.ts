@@ -61,10 +61,23 @@ export class AnthropicProvider implements AiProvider {
     // single string if only `systemPrompt` was provided.
     const systemBlocks = this.buildSystemBlocks(opts.systemBlocks, opts.systemPrompt, variables);
 
+    // Build the user-turn content: vision images first (one block each),
+    // then the text. Sonnet 4.6 supports vision blocks alongside text in
+    // the same message — Claude reads images in declaration order, then
+    // the trailing text frames the question.
+    const userContent: Anthropic.ContentBlockParam[] = [];
+    for (const img of opts.userImages ?? []) {
+      userContent.push({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+      });
+    }
+    userContent.push({ type: 'text', text: userText });
+
     const requestParams: Anthropic.MessageCreateParams = {
       model: opts.model ?? this.defaultModel,
       max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
-      messages: [{ role: 'user', content: userText }],
+      messages: [{ role: 'user', content: userContent }],
     };
 
     if (systemBlocks.length > 0) {

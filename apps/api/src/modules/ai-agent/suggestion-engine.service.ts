@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { SystemBlock } from '@rentflow/ai';
+import type { SystemBlock, UserImage } from '@rentflow/ai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiProviderRef } from './ai-provider.ref';
+import { WhatsAppAdapterProvider } from '../whatsapp/adapter.provider';
 
 export type LeadState =
   | 'initial_contact'
@@ -149,6 +150,7 @@ export class SuggestionEngineService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly providerRef: AiProviderRef,
+    private readonly waAdapter: WhatsAppAdapterProvider,
   ) {}
 
   async generate(input: GenerateSuggestionInput): Promise<SuggestionResult> {
@@ -234,6 +236,14 @@ export class SuggestionEngineService {
       !properties.some((p) => p.code === lead.property!.code);
 
     const systemBlocks = this.buildSystemBlocks(properties, fewShot);
+
+    // Vision: when the guest's most recent inbound was an image (often a
+    // screenshot of a listing or a Google Maps drop pin), pull the bytes
+    // from the WhatsApp Cloud API and attach to the user turn so Claude
+    // can actually look at it. Limit to the last 2 inbound media — anything
+    // older is usually noise and balloons the prompt.
+    const userImages = await this.collectRecentInboundImages(conversation.messages);
+    const hasImages = userImages.length > 0;
     const userPrompt = this.buildUserPrompt(
       lead,
       conversation,
@@ -241,6 +251,7 @@ export class SuggestionEngineService {
       viewings,
       input.proactive,
       requestedOffMarket,
+      hasImages,
     );
 
     const provider = this.providerRef.provider;
@@ -250,6 +261,7 @@ export class SuggestionEngineService {
       const response = await provider.complete({
         systemBlocks,
         userPrompt,
+        userImages: hasImages ? userImages : undefined,
         maxTokens: 800,
         jsonSchema: SUGGESTION_JSON_SCHEMA,
         model: modelId,
@@ -507,6 +519,34 @@ Do not include any text outside the JSON object.
     return `## Operator-Curated Examples (learn from these corrections)\n\n${rendered}`;
   }
 
+  /**
+   * Pull the last ≤2 inbound media messages from the conversation, fetch
+   * the bytes via the WhatsApp adapter, return as base64 vision blocks.
+   * Quietly returns an empty array on any download failure — we'd rather
+   * answer without the image than fail the whole suggestion.
+   */
+  private async collectRecentInboundImages(
+    messages: Array<{ direction: string; type: string; mediaUrl: string | null }>,
+  ): Promise<UserImage[]> {
+    const adapter = this.waAdapter.adapter;
+    if (!adapter.fetchInboundMedia) return [];
+    const candidates = messages
+      .filter((m) => m.direction === 'inbound' && m.type === 'image' && m.mediaUrl)
+      .slice(-2);
+    const out: UserImage[] = [];
+    for (const m of candidates) {
+      const fetched = await adapter.fetchInboundMedia(m.mediaUrl as string);
+      if (!fetched) continue;
+      // Anthropic vision accepts jpeg/png/webp/gif. Anything else → skip.
+      const mt = fetched.mimeType.toLowerCase();
+      const supported = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
+      const mediaType = supported.find((s) => mt.startsWith(s));
+      if (!mediaType) continue;
+      out.push({ base64: fetched.bytes.toString('base64'), mediaType });
+    }
+    return out;
+  }
+
   private buildUserPrompt(
     lead: { fullName: string | null; phoneE164: string; budgetAed: { toString(): string } | string | null; preferredArea: string | null; peopleCount: number | null; moveInDate: Date | null; rentalDurationMonths: number | null; property: { code: string; name: string; status: string; area: string | null; priceAed: { toString(): string } | string | null } | null },
     conversation: { messages: Array<{ direction: string; body: string | null; createdAt: Date }> },
@@ -514,6 +554,7 @@ Do not include any text outside the JSON object.
     viewings: Array<{ status: string; scheduledAt: Date; property: { code: string; name: string } | null }>,
     proactive?: { hoursOfSilence: number },
     requestedOffMarket?: boolean,
+    hasImages?: boolean,
   ): string {
     const profile = [
       `Name: ${lead.fullName ?? '(unknown)'}`,
@@ -591,6 +632,19 @@ either the lead's stated area, price range (within ±20% of the requested proper
 Keep it warm and forward-moving — never dead-end.`
       : '';
 
+    const visionDirective = hasImages
+      ? `
+
+## Vision input
+The image(s) attached to this turn were sent by the lead via WhatsApp. They are likely screenshots of one of
+OUR listings (Facebook/Telegram/IG post), a competitor's listing, or a Google Maps drop pin. Read them carefully:
+- If the image shows one of OUR properties (match by visible RF-CODE, price, address, or photo), confirm the
+  exact property they're asking about and treat it as identified — don't ask "which one?".
+- If it's a competitor listing or you can't recognise it, ask one short clarifying question
+  ("Got the picture — can you tell me roughly where it is and the price?") rather than guessing.
+- If it's a map pin, name the area you see and confirm before assuming.`
+      : '';
+
     return `## Current workflow state: ${state}
 
 ## Lead profile
@@ -601,7 +655,7 @@ ${viewingsBlock}
 
 ## Recent messages (oldest first)
 ${lastMessages}
-${offMarketDirective}
+${offMarketDirective}${visionDirective}
 
 ## Task
 The lead may have sent several short [LEAD] lines in a row before pausing — treat every [LEAD] line that appears AFTER the most recent [US] line as a single combined question and answer ALL of them together in one reply. Don't ignore earlier [LEAD] lines just because a newer one arrived.

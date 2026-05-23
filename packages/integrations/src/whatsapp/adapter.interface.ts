@@ -74,4 +74,10 @@ export interface WhatsAppAdapter {
   sendInteractiveButtons(opts: SendInteractiveButtonsOptions): Promise<SendResult>;
   verifyWebhookSignature(headers: Record<string, string>, rawBody: Buffer): boolean;
   parseInbound(payload: unknown): InboundMessage[];
+  /**
+   * Resolve a `wa-media:<id>` URL into raw bytes + mime type so the AI
+   * pipeline can include guest-sent screenshots as vision input. Returns
+   * null when the URL isn't a media reference or the download fails.
+   */
+  fetchInboundMedia?(mediaUrl: string): Promise<{ bytes: Buffer; mimeType: string } | null>;
 }

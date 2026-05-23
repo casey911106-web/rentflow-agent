@@ -146,9 +146,13 @@ export class CloudApiWhatsAppAdapter implements WhatsAppAdapter {
       from: string;
       type: string;
       text?: { body?: string };
-      image?: { link?: string };
-      video?: { link?: string };
-      document?: { link?: string };
+      // Cloud API payloads carry { id, mime_type, sha256, caption? } for
+      // media; `link` is NOT present. We store the media id behind a
+      // wa-media:<id> scheme so a later download step can resolve it via
+      // the Graph API.
+      image?: { id?: string; mime_type?: string; caption?: string };
+      video?: { id?: string; mime_type?: string; caption?: string };
+      document?: { id?: string; mime_type?: string; caption?: string; filename?: string };
       timestamp?: string;
       interactive?: {
         type?: string;
@@ -180,17 +184,54 @@ export class CloudApiWhatsAppAdapter implements WhatsAppAdapter {
       }
     }
 
+    // If the inbound is media, surface the caption as the body so the AI
+    // sees any text the guest typed under the image ("is this still
+    // available?"). The media itself is fetched later via fetchInboundMedia.
+    const mediaCaption = m.image?.caption ?? m.video?.caption ?? m.document?.caption;
+    if (!body && mediaCaption) body = mediaCaption;
+    const mediaId = m.image?.id ?? m.video?.id ?? m.document?.id;
+
     return {
       externalId: m.id,
       from: e164From,
       toBusinessNumber: this.cfg.businessNumberE164,
       type: validType,
       body,
-      mediaUrl: m.image?.link ?? m.video?.link ?? m.document?.link,
+      mediaUrl: mediaId ? `wa-media:${mediaId}` : undefined,
       buttonReply,
       receivedAt: m.timestamp ? new Date(Number(m.timestamp) * 1000) : new Date(),
       raw,
     };
+  }
+
+  /**
+   * Download an inbound media file by its WA media id (extracted from a
+   * `wa-media:<id>` URL stored on WhatsAppMessage.mediaUrl). Returns the
+   * raw bytes + mime type so callers can persist as FileUpload AND send
+   * to Claude as a vision input.
+   *
+   * The Graph API returns a short-lived signed URL that requires the same
+   * bearer token to download. Both steps must use this token.
+   */
+  async fetchInboundMedia(mediaUrl: string): Promise<{ bytes: Buffer; mimeType: string } | null> {
+    if (!mediaUrl.startsWith('wa-media:')) return null;
+    const mediaId = mediaUrl.slice('wa-media:'.length);
+    try {
+      const metaResp = await fetch(`${this.apiBase}/${mediaId}`, {
+        headers: { Authorization: `Bearer ${this.cfg.accessToken}` },
+      });
+      if (!metaResp.ok) return null;
+      const meta = (await metaResp.json()) as { url?: string; mime_type?: string };
+      if (!meta.url) return null;
+      const binResp = await fetch(meta.url, {
+        headers: { Authorization: `Bearer ${this.cfg.accessToken}` },
+      });
+      if (!binResp.ok) return null;
+      const buf = Buffer.from(await binResp.arrayBuffer());
+      return { bytes: buf, mimeType: meta.mime_type ?? 'application/octet-stream' };
+    } catch {
+      return null;
+    }
   }
 
   private normalizeTo(to: string): string {
