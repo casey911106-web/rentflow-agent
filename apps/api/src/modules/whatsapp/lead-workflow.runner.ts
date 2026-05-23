@@ -18,7 +18,10 @@ import { SuggestionsService } from '../ai-agent/suggestions.service';
  * calibrated 0.95+ band ("a junior teammate would send this identically")
  * so suggestions in that band are genuinely safe to auto-send.
  */
-const AUTO_APPROVE_CONFIDENCE = 0.95;
+// Was 0.95; 41% of suggestions were expiring un-actioned because the operator
+// couldn't keep up. The model is already gated by other checks (escalate flag,
+// stateAfter snap-backs), so we trust it a bit further to free the human queue.
+const AUTO_APPROVE_CONFIDENCE = 0.85;
 
 interface RunInput {
   companyId: string;
@@ -84,7 +87,31 @@ export class LeadWorkflowRunner {
       where: { companyId: input.companyId, leadId: lead.id, machine: 'lead', endedAt: null },
       orderBy: { startedAt: 'desc' },
     });
-    const state = (session?.state as LeadState | undefined) ?? 'initial_contact';
+    let state = (session?.state as LeadState | undefined) ?? 'initial_contact';
+
+    // High-intent fast-forward: most inbounds open with "Hi! I'm interested
+    // in RF-46GP5 …" (pre-filled by the click-to-chat link). When the lead
+    // already carries an attributed propertyId AND that property has an
+    // active Fast Posting package, skip the boilerplate qualification dance
+    // and ask for a viewing time straight away. Reduces median turns to
+    // viewing from ~6 down to 1.
+    if (!session && lead.propertyId && state === 'initial_contact') {
+      const offerable = await this.prisma.property.findFirst({
+        where: {
+          id: lead.propertyId,
+          deletedAt: null,
+          status: 'available',
+          postPackages: {
+            some: { deletedAt: null, status: { in: ['generated', 'scheduled', 'pending_approval', 'approved', 'published'] } },
+          },
+        },
+        select: { id: true },
+      });
+      if (offerable) {
+        state = 'suggest_property';
+        this.logger.log(`Fast-forwarding lead=${lead.id} from initial_contact → suggest_property (propertyId pre-attributed)`);
+      }
+    }
 
     // Fast-path: when the inbound carries the `[viewing]` marker (sent by
     // the marketplace 'Book a viewing' CTA) AND a property code, we bypass

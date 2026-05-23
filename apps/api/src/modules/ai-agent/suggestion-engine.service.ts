@@ -225,8 +225,23 @@ export class SuggestionEngineService {
       throw new Error(`SuggestionEngine: lead or conversation not found (lead=${input.leadId})`);
     }
 
+    // Cross-sell signal: if the lead asked about a specific property but
+    // that property is no longer in the offerable catalog (paused, blocked,
+    // rented, etc.), tell Claude explicitly so it doesn't keep claiming
+    // "available!" and can pivot to alternatives in the offerable list.
+    const requestedOffMarket =
+      !!lead.property &&
+      !properties.some((p) => p.code === lead.property!.code);
+
     const systemBlocks = this.buildSystemBlocks(properties, fewShot);
-    const userPrompt = this.buildUserPrompt(lead, conversation, input.state, viewings, input.proactive);
+    const userPrompt = this.buildUserPrompt(
+      lead,
+      conversation,
+      input.state,
+      viewings,
+      input.proactive,
+      requestedOffMarket,
+    );
 
     const provider = this.providerRef.provider;
     const modelId = process.env.AI_MODEL ?? 'claude-sonnet-4-6';
@@ -498,12 +513,13 @@ Do not include any text outside the JSON object.
     state: LeadState,
     viewings: Array<{ status: string; scheduledAt: Date; property: { code: string; name: string } | null }>,
     proactive?: { hoursOfSilence: number },
+    requestedOffMarket?: boolean,
   ): string {
     const profile = [
       `Name: ${lead.fullName ?? '(unknown)'}`,
       `Phone: ${lead.phoneE164}`,
       lead.property
-        ? `Property of interest: ${lead.property.code} — ${lead.property.name} (${lead.property.status}, ${lead.property.priceAed ? `AED ${Number(lead.property.priceAed).toLocaleString()}` : 'price TBC'})`
+        ? `Property of interest: ${lead.property.code} — ${lead.property.name} (${lead.property.status}, ${lead.property.priceAed ? `AED ${Number(lead.property.priceAed).toLocaleString()}` : 'price TBC'})${requestedOffMarket ? ' ⚠ OFF-MARKET — do NOT claim availability, pivot to alternatives below.' : ''}`
         : 'Property of interest: not yet identified',
       lead.moveInDate ? `Collected: move-in ${lead.moveInDate.toISOString().slice(0, 10)}` : null,
       lead.peopleCount ? `Collected: ${lead.peopleCount} people` : null,
@@ -565,6 +581,16 @@ The lead has been silent for ${silenceWindow}. There is NO new inbound message t
 Respond with the JSON object only, no surrounding text. \`stateAfter\` should reflect what we'd transition to if they reply usefully.`;
     }
 
+    const offMarketDirective = requestedOffMarket
+      ? `
+
+## Cross-sell directive (REQUESTED PROPERTY IS OFF-MARKET)
+The property the lead asked about is paused/blocked/rented. DO NOT say "yes, available" or send its viewing link.
+Instead: apologise briefly ("Just got booked, sorry") and propose 2-3 alternatives from the catalog above that match
+either the lead's stated area, price range (within ±20% of the requested property), or their explicit preferences.
+Keep it warm and forward-moving — never dead-end.`
+      : '';
+
     return `## Current workflow state: ${state}
 
 ## Lead profile
@@ -575,6 +601,7 @@ ${viewingsBlock}
 
 ## Recent messages (oldest first)
 ${lastMessages}
+${offMarketDirective}
 
 ## Task
 The lead may have sent several short [LEAD] lines in a row before pausing — treat every [LEAD] line that appears AFTER the most recent [US] line as a single combined question and answer ALL of them together in one reply. Don't ignore earlier [LEAD] lines just because a newer one arrived.
