@@ -342,7 +342,7 @@ function CreateDealForm({
   onSuccess,
 }: {
   leadId: string;
-  property: { priceAed: string | null };
+  property: { id: string; priceAed: string | null };
   onSuccess: (dealId: string) => void;
 }) {
   const defaultRent = property.priceAed ? Number(property.priceAed) : 0;
@@ -360,6 +360,10 @@ function CreateDealForm({
         method: 'POST',
         body: JSON.stringify({
           leadId,
+          // Send the viewing's property as a fallback in case the lead
+          // wasn't auto-attributed at intake (older regex left propertyId
+          // null on many leads).
+          propertyId: property.id,
           rentAmount: rentAmount ? Number(rentAmount) : undefined,
           depositAmount: depositAmount ? Number(depositAmount) : undefined,
           commissionAmount: commissionAmount ? Number(commissionAmount) : undefined,

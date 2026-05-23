@@ -15,14 +15,19 @@ export interface ParsedAttribution {
   placementSlug?: string;
 }
 
-const PROPERTY_REGEX = /Property\s+(?<property>[A-Z0-9-]+)/i;
-const POST_REGEX = /Post\s+(?<post>[A-Z0-9-]+)/i;
+// Property codes are minted as `RF-<id>` (see migrations/seed). Guests paste
+// the code in countless shapes ("interested in RF-46GP5", "Property RF-46GP5",
+// "code: RF-46GP5"), so match the standalone token instead of demanding a
+// "Property " prefix.
+const PROPERTY_REGEX = /\bRF-[A-Z0-9]+\b/i;
+// Post codes follow the same `POST-<id>` shape on tracking links.
+const POST_REGEX = /\bPOST-[A-Z0-9]+\b/i;
 // `[ref:ABCD1234]` — short alphanumeric placement slug (8 chars usually).
 const PLACEMENT_REGEX = /\[ref:(?<slug>[A-Z0-9]{4,16})\]/i;
 
 export function parseAttribution(text: string): ParsedAttribution {
-  const property = text.match(PROPERTY_REGEX)?.groups?.['property'];
-  const post = text.match(POST_REGEX)?.groups?.['post'];
+  const property = text.match(PROPERTY_REGEX)?.[0];
+  const post = text.match(POST_REGEX)?.[0];
   const slug = text.match(PLACEMENT_REGEX)?.groups?.['slug'];
   return {
     propertyCode: property ? property.toUpperCase() : undefined,

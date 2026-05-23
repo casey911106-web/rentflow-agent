@@ -418,6 +418,17 @@ export class PostingService {
     });
   }
 
+  async resume(companyId: string, id: string) {
+    const pkg = await this.findById(companyId, id);
+    // Approved packages return to 'approved'; everything else falls back to
+    // 'generated' so the operator can re-approve before re-publishing.
+    const nextStatus = pkg.approvedAt ? 'approved' : 'generated';
+    return this.prisma.postPackage.update({
+      where: { id },
+      data: { status: nextStatus, pausedAt: null },
+    });
+  }
+
   async approve(companyId: string, id: string, userId: string) {
     await this.findById(companyId, id);
     return this.prisma.postPackage.update({

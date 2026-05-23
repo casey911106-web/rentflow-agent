@@ -36,6 +36,7 @@ export class DealsService {
     companyId: string,
     body: {
       leadId: string;
+      propertyId?: string;
       rentAmount?: number;
       depositAmount?: number;
       commissionAmount?: number;
@@ -49,11 +50,29 @@ export class DealsService {
     });
     if (!lead) throw new NotFoundException('Lead not found');
 
+    // Prefer the explicit propertyId the operator picked; fall back to the
+    // lead's attributed property. If neither is set the deal can't be created.
+    let propertyId = body.propertyId ?? lead.propertyId ?? undefined;
+    if (!propertyId) {
+      // Last resort: any viewing tied to this lead names a property.
+      const v = await this.prisma.viewing.findFirst({
+        where: { leadId: lead.id, companyId },
+        orderBy: { createdAt: 'desc' },
+        select: { propertyId: true },
+      });
+      propertyId = v?.propertyId ?? undefined;
+    }
+    if (!propertyId) {
+      throw new NotFoundException(
+        'Cannot create deal: no property linked to this lead. Pick a property explicitly or attribute the lead first.',
+      );
+    }
+
     return this.prisma.deal.create({
       data: {
         companyId,
         leadId: lead.id,
-        propertyId: lead.propertyId!,
+        propertyId,
         status: 'open',
         rentAmount: body.rentAmount,
         depositAmount: body.depositAmount,

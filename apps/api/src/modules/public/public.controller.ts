@@ -113,7 +113,22 @@ export class PublicController {
     if (!company) throw new NotFoundException();
 
     const property = await this.prisma.property.findFirst({
-      where: { companyId: company.id, code, deletedAt: null, status: { not: 'draft' } },
+      where: {
+        companyId: company.id,
+        code,
+        deletedAt: null,
+        status: 'available',
+        // Mirror the list endpoint gate: a public detail page should only
+        // exist while the operator has an active Fast Posting package. Once
+        // every package is paused/archived/failed the listing falls off the
+        // marketplace and the deep link 404s — matches operator intent.
+        postPackages: {
+          some: {
+            deletedAt: null,
+            status: { in: ['generated', 'scheduled', 'pending_approval', 'approved', 'published'] },
+          },
+        },
+      },
       select: {
         id: true,
         code: true,

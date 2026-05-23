@@ -167,7 +167,19 @@ export default function PostPackageDetailPage({ params }: { params: { id: string
 
   const pause = useMutation({
     mutationFn: () => api(`/post-packages/${params.id}/pause`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['post-packages'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['post-packages'] });
+      qc.invalidateQueries({ queryKey: ['post-package', params.id] });
+    },
+    onError: (err) => setActionError((err as Error).message),
+  });
+
+  const resume = useMutation({
+    mutationFn: () => api(`/post-packages/${params.id}/resume`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['post-packages'] });
+      qc.invalidateQueries({ queryKey: ['post-package', params.id] });
+    },
     onError: (err) => setActionError((err as Error).message),
   });
 
@@ -525,9 +537,18 @@ export default function PostPackageDetailPage({ params }: { params: { id: string
             )}
 
             {pkg.status === 'paused' && (
-              <p className="rounded-md bg-amber-50 p-2.5 text-xs text-amber-800">
-                Paused. Property availability may have changed — check before re-publishing.
-              </p>
+              <>
+                <p className="mb-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-800">
+                  Paused. Property is hidden from the AI, the public marketplace and direct deep links. Resume to put it back live.
+                </p>
+                <button
+                  onClick={() => resume.mutate()}
+                  disabled={resume.isPending}
+                  className="w-full rounded-md bg-teal px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
+                >
+                  {resume.isPending ? 'Resuming…' : 'Resume this post'}
+                </button>
+              </>
             )}
           </div>
         </aside>

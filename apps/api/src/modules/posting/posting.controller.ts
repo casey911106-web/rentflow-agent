@@ -58,6 +58,11 @@ export class PostingController {
     return this.posting.pause(user.companyId, id);
   }
 
+  @Post(':id/resume')
+  resume(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.posting.resume(user.companyId, id);
+  }
+
   @Post(':id/mark-published')
   @Roles('super_admin', 'ops_manager', 'field_agent')
   markPublished(

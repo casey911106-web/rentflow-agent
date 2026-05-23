@@ -178,7 +178,21 @@ export class SuggestionEngineService {
         take: 15,
       }),
       this.prisma.property.findMany({
-        where: { companyId: input.companyId, deletedAt: null, status: 'available' },
+        where: {
+          companyId: input.companyId,
+          deletedAt: null,
+          status: 'available',
+          // Operator-controlled availability: only offer properties that have
+          // at least one Fast Posting package in a publish-worthy state.
+          // 'paused', 'archived', 'failed', 'draft' don't count — if the
+          // operator paused all posts, the property is off-market.
+          postPackages: {
+            some: {
+              deletedAt: null,
+              status: { in: ['generated', 'scheduled', 'pending_approval', 'approved', 'published'] },
+            },
+          },
+        },
         orderBy: { code: 'asc' },
         take: 25,
         select: {
