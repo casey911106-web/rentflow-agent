@@ -12,8 +12,24 @@ interface LeadRow {
   status: string;
   temperature: string;
   qualificationScore: number;
+  firstSeenAt: string;
+  createdAt: string;
   property: { code: string; name: string } | null;
   postPackage: { id: string; title: string | null } | null;
+}
+
+function shortTimestamp(iso: string): string {
+  const d = new Date(iso);
+  const now = Date.now();
+  const ms = now - d.getTime();
+  const min = Math.floor(ms / 60000);
+  if (min < 60) return `hace ${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h}h`;
+  const days = Math.floor(h / 24);
+  if (days < 7) return `hace ${days}d`;
+  // For older leads, show absolute date (no time)
+  return d.toLocaleDateString();
 }
 
 export default function LeadsPage() {
@@ -49,9 +65,15 @@ export default function LeadsPage() {
                     {l.property.code} — {l.property.name}
                   </p>
                 ) : null}
-                <div className="mt-2 flex flex-wrap gap-1">
+                <div className="mt-2 flex flex-wrap items-center gap-1">
                   <StatusPill status={l.status} />
                   <StatusPill status={l.temperature} />
+                  <span
+                    className="ml-auto text-[11px] text-gray-medium"
+                    title={new Date(l.firstSeenAt ?? l.createdAt).toLocaleString()}
+                  >
+                    {shortTimestamp(l.firstSeenAt ?? l.createdAt)}
+                  </span>
                 </div>
               </Link>
             </li>
@@ -70,13 +92,14 @@ export default function LeadsPage() {
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Temp</th>
               <th className="px-4 py-3">Score</th>
+              <th className="px-4 py-3">First contact</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-medium">Loading…</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-medium">Loading…</td></tr>
             ) : !data?.length ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-medium">No leads yet.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-medium">No leads yet.</td></tr>
             ) : (
               data.map((l) => (
                 <tr key={l.id} className="border-t border-gray-light hover:bg-offwhite">
@@ -92,6 +115,12 @@ export default function LeadsPage() {
                   <td className="px-4 py-3"><StatusPill status={l.status} /></td>
                   <td className="px-4 py-3"><StatusPill status={l.temperature} /></td>
                   <td className="px-4 py-3 font-semibold text-gray-dark">{l.qualificationScore}</td>
+                  <td
+                    className="px-4 py-3 text-xs text-gray-medium"
+                    title={new Date(l.firstSeenAt ?? l.createdAt).toLocaleString()}
+                  >
+                    {shortTimestamp(l.firstSeenAt ?? l.createdAt)}
+                  </td>
                 </tr>
               ))
             )}
