@@ -331,6 +331,12 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
               </div>
               {conv ? (
                 <div className="flex gap-2">
+                  <Link
+                    href={`/whatsapp?c=${conv.id}`}
+                    className="rounded-md border border-gray-light bg-white px-3 py-1.5 text-xs font-semibold text-gray-dark hover:bg-offwhite"
+                  >
+                    Abrir en Inbox →
+                  </Link>
                   {conv.mode === 'ai' ? (
                     <button
                       onClick={() => setMode.mutate('human_takeover')}

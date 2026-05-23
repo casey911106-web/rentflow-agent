@@ -7,6 +7,7 @@ import { registerPushTokenIfPossible } from '../../lib/push';
 
 export default function TabsLayout() {
   const [unread, setUnread] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -22,6 +23,16 @@ export default function TabsLayout() {
     poll();
     const id = setInterval(poll, 60_000);
     return () => { active = false; clearInterval(id); };
+  }, []);
+
+  // Inbox tab is only for super_admin / ops_manager — field agents don't
+  // need (and shouldn't see) the global WhatsApp surface.
+  useEffect(() => {
+    let active = true;
+    api<{ roles: string[] }>('/auth/me')
+      .then((me) => { if (active) setIsAdmin(me.roles.some((r) => r === 'super_admin' || r === 'ops_manager')); })
+      .catch(() => { /* not logged in yet */ });
+    return () => { active = false; };
   }, []);
 
   // Register this device for push notifications + handle taps. Only fires
@@ -54,6 +65,15 @@ export default function TabsLayout() {
         options={{
           title: "Today's viewings",
           tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          title: 'Inbox',
+          tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles-outline" color={color} size={size} />,
+          // Hide for field agents; admins/ops_managers see it.
+          href: isAdmin ? '/inbox' : null,
         }}
       />
       <Tabs.Screen
