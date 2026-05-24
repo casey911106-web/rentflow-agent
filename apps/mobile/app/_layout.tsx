@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
+import { View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
+import { UpdateBanner } from '../components/UpdateBanner';
 
 export default function RootLayout() {
   // Background OTA check on every launch. Updates that finish downloading
@@ -25,7 +27,7 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <StatusBar style="dark" />
       <Stack
         screenOptions={{
@@ -40,6 +42,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="viewing/[id]" options={{ title: 'Viewing' }} />
       </Stack>
-    </>
+      <UpdateBanner />
+    </View>
   );
 }
