@@ -88,6 +88,19 @@ const STATUS_OPTIONS = [
   'not_ready_to_post',
 ];
 
+const TYPE_OPTIONS = [
+  'bed_space',
+  'shared_room',
+  'partition',
+  'master_room',
+  'studio',
+  'one_bedroom',
+  'two_bedroom',
+  'three_bedroom',
+  'villa',
+  'other',
+];
+
 export default function PropertyDetailPage({ params }: { params: { id: string } }) {
   const qc = useQueryClient();
   const { data: property, isLoading } = useQuery({
@@ -97,6 +110,7 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
 
   const [edit, setEdit] = useState({
     name: '',
+    type: 'studio',
     status: 'draft',
     area: '',
     addressLine: '',
@@ -145,6 +159,7 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
     if (property) {
       setEdit({
         name: property.name,
+        type: property.type,
         status: property.status,
         area: property.area ?? '',
         addressLine: property.addressLine ?? '',
@@ -167,6 +182,7 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
         method: 'PATCH',
         body: JSON.stringify({
           name: edit.name,
+          type: edit.type,
           status: edit.status,
           area: edit.area || null,
           addressLine: edit.addressLine || null,
@@ -313,6 +329,19 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
           <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
             <h3 className="mb-4 text-sm uppercase tracking-wide text-gray-medium">Property fields</h3>
             <Field label="Name" value={edit.name} onChange={(v) => setField('name', v)} />
+
+            <label className="mb-1 block text-xs font-semibold text-gray-dark">Type</label>
+            <select
+              value={edit.type}
+              onChange={(e) => setField('type', e.target.value)}
+              className="mb-3 w-full rounded-md border border-gray-light px-2.5 py-1.5 text-sm focus:border-teal focus:outline-none"
+            >
+              {TYPE_OPTIONS.map((t) => (
+                <option key={t} value={t}>
+                  {t.replace(/_/g, ' ')}
+                </option>
+              ))}
+            </select>
 
             <label className="mb-1 block text-xs font-semibold text-gray-dark">Status</label>
             <select
