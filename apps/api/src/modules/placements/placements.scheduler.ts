@@ -22,6 +22,14 @@ const ELIGIBLE_PUBLISHER_ROLES = ['super_admin', 'ops_manager', 'field_agent'];
  *  rotation, which surprised ops who hadn't reviewed them yet. Now an
  *  explicit Approve click is required before publishers see the task. */
 const ACTIVE_PACKAGE_STATUSES = ['approved', 'published'];
+/** How many placements a single stale day "neutralises" in the priority sort.
+ *  Without staleness weight, a package that accidentally accumulates many
+ *  placements early stays at the back of the queue forever — the scheduler
+ *  keeps picking newer packages that have fewer placements. With this weight,
+ *  a package untouched for ~10 days bubbles back even if it has 20 placements. */
+const STALENESS_WEIGHT_PER_DAY = 2;
+/** Cap so a package that was never assigned doesn't get unbounded priority. */
+const MAX_STALENESS_DAYS = 14;
 
 /**
  * Round-robin Fast Posting scheduler.
@@ -127,11 +135,33 @@ export class PlacementsScheduler {
       });
       if (candidatePackages.length === 0) continue;
 
-      // Sort packages by fewest placements first → distribute coverage.
-      candidatePackages.sort((a, b) => a._count.placements - b._count.placements);
+      // Per-package last assignment (used by the priority score below — keeps
+      // long-untouched packages from being permanently outranked by newer
+      // packages with fewer placements).
+      const lastAssignedByPackageRows = await this.prisma.postAssignment.groupBy({
+        by: ['postPackageId'],
+        where: { companyId: company.id },
+        _max: { assignedAt: true },
+      });
+      const lastAssignedByPackage = new Map<string, Date>();
+      for (const r of lastAssignedByPackageRows) {
+        if (r._max.assignedAt) lastAssignedByPackage.set(r.postPackageId, r._max.assignedAt);
+      }
+
+      const nowTs = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      function priorityScore(p: { id: string; _count: { placements: number } }): number {
+        const last = lastAssignedByPackage.get(p.id);
+        const days = last ? Math.min(MAX_STALENESS_DAYS, (nowTs - last.getTime()) / dayMs) : MAX_STALENESS_DAYS;
+        // Lower score = picked first. Placements push the score up; staleness pulls it down.
+        return p._count.placements - STALENESS_WEIGHT_PER_DAY * days;
+      }
+
+      // Sort: lowest score (fewest placements relative to staleness) first.
+      candidatePackages.sort((a, b) => priorityScore(a) - priorityScore(b));
 
       // Build a map of (publisher → set of package ids assigned in last 24h)
-      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const cutoff = new Date(nowTs - 24 * 60 * 60 * 1000);
       const recentAssignments = await this.prisma.postAssignment.findMany({
         where: { companyId: company.id, assignedAt: { gte: cutoff } },
         select: { assigneeUserId: true, postPackageId: true },
@@ -252,10 +282,11 @@ export class PlacementsScheduler {
           // Mark this publisher as just-assigned so the next pass in the
           // same tick respects the pacing window and skips them.
           lastAssignedMap.set(pub.id, new Date());
-          // Bump that package's placement count synthetically so the sort still
-          // spreads work if multiple publishers exist
+          // Bump placement count + mark this package as just-assigned so the
+          // priority sort stays accurate across passes in the same tick.
           target._count.placements++;
-          candidatePackages.sort((a, b) => a._count.placements - b._count.placements);
+          lastAssignedByPackage.set(target.id, new Date());
+          candidatePackages.sort((a, b) => priorityScore(a) - priorityScore(b));
 
           assigned++;
           assignedThisPass++;
