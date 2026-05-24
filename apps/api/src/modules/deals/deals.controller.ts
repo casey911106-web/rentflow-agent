@@ -56,4 +56,13 @@ export class DealsController {
   ) {
     return this.deals.upsertCommission(user.companyId, id, body);
   }
+
+  @Post(':id/splits')
+  splits(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: { splits: Array<{ recipientUserId?: string | null; label: string; percent: number; notes?: string }> },
+  ) {
+    return this.deals.replaceSplits(user.companyId, id, body.splits);
+  }
 }

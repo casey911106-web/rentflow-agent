@@ -1,13 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import { api } from '../../lib/api';
 import { registerPushTokenIfPossible } from '../../lib/push';
 
+// Backend sends web-style links in push payloads. Translate to mobile routes
+// — anything unknown lands on /today so taps never throw "unmatched route".
+function mapPushLinkToMobile(link: string, isAdmin: boolean): string {
+  if (link.startsWith('/viewing/') || link.startsWith('/inbox/')
+      || link.startsWith('/availability/')) return link;
+  if (link === '/tasks' || link === '/today' || link === '/inbox'
+      || link === '/performance' || link === '/notifications'
+      || link === '/availability') return link;
+  if (link.startsWith('/leads/')) return isAdmin ? '/inbox' : '/today';
+  if (link.startsWith('/posting/')) return '/tasks';
+  return '/today';
+}
+
 export default function TabsLayout() {
   const [unread, setUnread] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const isAdminRef = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -30,7 +44,11 @@ export default function TabsLayout() {
   useEffect(() => {
     let active = true;
     api<{ roles: string[] }>('/auth/me')
-      .then((me) => { if (active) setIsAdmin(me.roles.some((r) => r === 'super_admin' || r === 'ops_manager')); })
+      .then((me) => {
+        const admin = me.roles.some((r) => r === 'super_admin' || r === 'ops_manager');
+        if (active) setIsAdmin(admin);
+        isAdminRef.current = admin;
+      })
       .catch(() => { /* not logged in yet */ });
     return () => { active = false; };
   }, []);
@@ -44,7 +62,7 @@ export default function TabsLayout() {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as { link?: string } | null;
       if (data?.link && typeof data.link === 'string') {
-        router.push(data.link as never);
+        router.push(mapPushLinkToMobile(data.link, isAdminRef.current) as never);
       }
     });
     return () => sub.remove();
@@ -81,6 +99,13 @@ export default function TabsLayout() {
         options={{
           title: 'Publish tasks',
           tabBarIcon: ({ color, size }) => <Ionicons name="megaphone-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="availability"
+        options={{
+          title: 'Disponibilidad',
+          tabBarIcon: ({ color, size }) => <Ionicons name="checkmark-done-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen

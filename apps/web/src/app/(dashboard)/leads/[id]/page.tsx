@@ -549,6 +549,12 @@ export default function LeadDetailPage({ params }: { params: { id: string } }) {
                 ) : null}
               </Link>
             </section>
+          ) : lead.property && lead.status !== 'won' && lead.status !== 'lost' && lead.status !== 'opted_out' ? (
+            <CloseAsWonForm
+              leadId={lead.id}
+              defaultRentAed={lead.property.priceAed}
+              onSuccess={() => qc.invalidateQueries({ queryKey: ['leads', params.id] })}
+            />
           ) : null}
         </aside>
       </div>
@@ -665,6 +671,81 @@ function ScheduleViewingForm({
         className="w-full rounded-md bg-teal px-3 py-2 text-sm font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
       >
         {create.isPending ? 'Scheduling…' : 'Schedule viewing'}
+      </button>
+    </section>
+  );
+}
+
+function CloseAsWonForm({
+  leadId,
+  defaultRentAed,
+  onSuccess,
+}: {
+  leadId: string;
+  defaultRentAed: string | null;
+  onSuccess: () => void;
+}) {
+  const [rentAed, setRentAed] = useState(defaultRentAed ?? '');
+  const [commissionAed, setCommissionAed] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const close = useMutation({
+    mutationFn: async () => {
+      const deal = await api<{ id: string }>('/deals', {
+        method: 'POST',
+        body: JSON.stringify({
+          leadId,
+          rentAmount: rentAed ? Number(rentAed) : undefined,
+          commissionAmount: Number(commissionAed),
+        }),
+      });
+      await api(`/deals/${deal.id}/mark-won`, { method: 'POST' });
+      return deal;
+    },
+    onSuccess: () => {
+      setError(null);
+      onSuccess();
+    },
+    onError: (err) => setError((err as Error).message),
+  });
+
+  const commissionValid = commissionAed && Number(commissionAed) > 0;
+
+  return (
+    <section className="rounded-md border border-teal/30 bg-teal-light/40 p-5 shadow-card">
+      <h3 className="mb-1 text-sm uppercase tracking-wide text-navy-deep">Cerrar como ganado</h3>
+      <p className="mb-3 text-xs text-gray-medium">
+        Crea el deal + lo marca como won + setea la comisión esperada.
+      </p>
+
+      {error ? (
+        <p className="mb-2 rounded-md bg-red-50 p-2 text-xs text-red-800">{error}</p>
+      ) : null}
+
+      <label className="mb-1 block text-xs font-semibold text-gray-dark">Rent (AED)</label>
+      <input
+        type="number"
+        value={rentAed}
+        onChange={(e) => setRentAed(e.target.value)}
+        placeholder={defaultRentAed ?? 'optional'}
+        className="mb-3 w-full rounded-md border border-gray-light px-2.5 py-1.5 text-sm focus:border-teal focus:outline-none"
+      />
+
+      <label className="mb-1 block text-xs font-semibold text-gray-dark">Comisión (AED) *</label>
+      <input
+        type="number"
+        value={commissionAed}
+        onChange={(e) => setCommissionAed(e.target.value)}
+        placeholder="1000"
+        className="mb-3 w-full rounded-md border border-gray-light px-2.5 py-1.5 text-sm focus:border-teal focus:outline-none"
+      />
+
+      <button
+        onClick={() => close.mutate()}
+        disabled={!commissionValid || close.isPending}
+        className="w-full rounded-md bg-teal px-3 py-2 text-sm font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
+      >
+        {close.isPending ? 'Cerrando…' : 'Cerrar como ganado'}
       </button>
     </section>
   );

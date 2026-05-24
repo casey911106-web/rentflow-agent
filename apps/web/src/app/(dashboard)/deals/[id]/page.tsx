@@ -41,6 +41,20 @@ interface DealDetail {
       createdAt: string;
     }>;
   } | null;
+  splits: Array<{
+    id: string;
+    recipientUserId: string | null;
+    recipient: { id: string; fullName: string } | null;
+    label: string;
+    percent: string;
+    notes: string | null;
+  }>;
+}
+
+interface UserOption {
+  id: string;
+  fullName: string;
+  roles: string[];
 }
 
 const COMMISSION_STATUSES = [
@@ -57,6 +71,21 @@ export default function DealDetailPage({ params }: { params: { id: string } }) {
   const { data: deal, isLoading } = useQuery({
     queryKey: ['deals', params.id],
     queryFn: () => api<DealDetail>(`/deals/${params.id}`),
+  });
+
+  const { data: users } = useQuery({
+    queryKey: ['users-for-splits'],
+    queryFn: () => api<UserOption[]>('/users'),
+  });
+
+  const updateSplits = useMutation({
+    mutationFn: (splits: Array<{ recipientUserId?: string | null; label: string; percent: number }>) =>
+      api(`/deals/${params.id}/splits`, {
+        method: 'POST',
+        body: JSON.stringify({ splits }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['deals', params.id] }),
+    onError: (err) => setActionError((err as Error).message),
   });
 
   const [actionError, setActionError] = useState<string | null>(null);
@@ -322,6 +351,16 @@ export default function DealDetailPage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
+          {/* Splits */}
+          <SplitsEditor
+            commissionAed={deal.commissionAmount ? Number(deal.commissionAmount) : null}
+            currentSplits={deal.splits}
+            users={users ?? []}
+            defaultAgentUserId={deal.fieldAgent?.user ? null : null /* fieldAgent.user has no id in DealDetail */}
+            onSave={(splits) => updateSplits.mutate(splits)}
+            pending={updateSplits.isPending}
+          />
+
           {/* Payments */}
           {c && c.payments.length > 0 ? (
             <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
@@ -357,6 +396,147 @@ export default function DealDetailPage({ params }: { params: { id: string } }) {
             </div>
           ) : null}
         </section>
+      </div>
+    </div>
+  );
+}
+
+type DraftSplit = { recipientUserId: string | null; label: string; percent: string };
+
+function SplitsEditor({
+  commissionAed,
+  currentSplits,
+  users,
+  onSave,
+  pending,
+}: {
+  commissionAed: number | null;
+  currentSplits: DealDetail['splits'];
+  users: UserOption[];
+  defaultAgentUserId: string | null;
+  onSave: (splits: Array<{ recipientUserId?: string | null; label: string; percent: number }>) => void;
+  pending: boolean;
+}) {
+  const initial: DraftSplit[] = currentSplits.length > 0
+    ? currentSplits.map((s) => ({
+        recipientUserId: s.recipientUserId,
+        label: s.label,
+        percent: String(Number(s.percent)),
+      }))
+    : [
+        { recipientUserId: null, label: 'Platform', percent: '50' },
+        { recipientUserId: '', label: 'Field agent', percent: '50' },
+      ];
+
+  const [drafts, setDrafts] = useState<DraftSplit[]>(initial);
+
+  function update(idx: number, patch: Partial<DraftSplit>) {
+    setDrafts((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
+  }
+  function addRow() {
+    setDrafts((prev) => [...prev, { recipientUserId: '', label: '', percent: '0' }]);
+  }
+  function removeRow(idx: number) {
+    setDrafts((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  const totalPct = drafts.reduce((acc, d) => acc + (Number(d.percent) || 0), 0);
+  const valid = Math.abs(totalPct - 100) < 0.01 && drafts.every((d) => d.label.trim());
+
+  function submit() {
+    onSave(
+      drafts.map((d) => ({
+        recipientUserId: d.recipientUserId || null,
+        label: d.label.trim(),
+        percent: Number(d.percent),
+      })),
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm uppercase tracking-wide text-gray-medium">Distribución de comisión</h3>
+        <span className={`text-xs font-semibold ${Math.abs(totalPct - 100) < 0.01 ? 'text-success' : 'text-danger'}`}>
+          {totalPct.toFixed(1)}% / 100
+        </span>
+      </div>
+
+      <p className="mb-3 text-xs text-gray-medium">
+        Quién recibe qué porcentaje de la comisión. Platform = la plataforma; el resto se asigna a usuarios. La suma debe ser 100.
+      </p>
+
+      <div className="space-y-2">
+        {drafts.map((d, i) => {
+          const isPlatform = d.recipientUserId === null;
+          const aed = commissionAed ? (commissionAed * (Number(d.percent) || 0)) / 100 : null;
+          return (
+            <div key={i} className="grid grid-cols-12 items-center gap-2 rounded-md border border-gray-light p-2">
+              <div className="col-span-4">
+                <select
+                  value={d.recipientUserId === null ? '__platform__' : d.recipientUserId}
+                  onChange={(e) =>
+                    update(i, {
+                      recipientUserId: e.target.value === '__platform__' ? null : e.target.value,
+                      label: e.target.value === '__platform__' ? 'Platform' : d.label || 'Field agent',
+                    })
+                  }
+                  className="w-full rounded-md border border-gray-light bg-white px-2 py-1.5 text-xs focus:border-teal focus:outline-none"
+                >
+                  <option value="__platform__">Platform</option>
+                  <option value="">— pick user —</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.fullName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <input
+                type="text"
+                value={d.label}
+                onChange={(e) => update(i, { label: e.target.value })}
+                placeholder={isPlatform ? 'Platform' : 'Label (e.g. Field agent)'}
+                className="col-span-4 rounded-md border border-gray-light bg-white px-2 py-1.5 text-xs focus:border-teal focus:outline-none"
+              />
+              <input
+                type="number"
+                value={d.percent}
+                onChange={(e) => update(i, { percent: e.target.value })}
+                placeholder="%"
+                step="0.01"
+                className="col-span-2 rounded-md border border-gray-light bg-white px-2 py-1.5 text-right text-xs focus:border-teal focus:outline-none"
+              />
+              <div className="col-span-1 text-right text-[10px] text-gray-medium">
+                {aed !== null ? `AED ${aed.toFixed(0)}` : '—'}
+              </div>
+              <button
+                onClick={() => removeRow(i)}
+                disabled={drafts.length <= 1}
+                title="Remove"
+                className="col-span-1 text-xs text-gray-medium hover:text-danger disabled:opacity-30"
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 flex justify-between">
+        <button
+          onClick={addRow}
+          className="rounded-md border border-gray-light px-3 py-1.5 text-xs font-semibold text-gray-dark hover:bg-offwhite"
+        >
+          + Agregar
+        </button>
+        <button
+          onClick={submit}
+          disabled={!valid || pending}
+          className="rounded-md bg-teal px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#008C8A] disabled:opacity-50"
+        >
+          {pending ? 'Guardando…' : 'Guardar'}
+        </button>
       </div>
     </div>
   );

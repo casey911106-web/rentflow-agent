@@ -269,6 +269,7 @@ model Company {
   costEntries             CostEntry[]
   costSubscriptions       CostSubscription[]
   deals                   Deal[]
+  commissionSplits        CommissionSplit[]
   notifications           Notification[]
   automationRules         AutomationRule[]
   appSettings             AppSetting[]
@@ -323,6 +324,8 @@ model User {
   approvedPackages    PostPackage[]    @relation("ApprovedByUser")
   postPlacements      PostPlacement[]  @relation("PostPlacementPublisher")
   postAssignments     PostAssignment[] @relation("PostAssignmentAssignee")
+  availabilityChecks  OwnerAvailabilityCheck[] @relation("AvailabilityCheckAssignee")
+  commissionSplits    CommissionSplit[] @relation("CommissionSplitRecipient")
   auditLogs           AuditLog[]
   fileUploads         FileUpload[]
   decidedSuggestions  Suggestion[]     @relation("SuggestionDecidedBy")
@@ -481,9 +484,20 @@ model OwnerAvailabilityCheck {
   rawReply    String?
   nextCheckAt DateTime?
 
+  // Field-agent assignment (round-robin sweep every 12h, 24h TTL)
+  assigneeUserId        String?
+  assignee              User?     @relation("AvailabilityCheckAssignee", fields: [assigneeUserId], references: [id])
+  assignedAt            DateTime?
+  expiresAt             DateTime?
+  fulfilledAt           DateTime?
+  reportedAvailableFrom DateTime?
+  reportedNotes         String?
+
   @@index([companyId, askedAt])
   @@index([ownerId])
   @@index([propertyId])
+  @@index([assigneeUserId, status])
+  @@index([status, expiresAt])
 }
 
 model OwnerScoreSnapshot {
@@ -1244,10 +1258,34 @@ model Deal {
   deletedAt DateTime?
 
   commission Commission?
+  splits     CommissionSplit[]
 
   @@index([companyId, status])
   @@index([propertyId])
   @@index([partnerUserId, partnerSettledAt])
+}
+
+/// One row per recipient of the deal's commission. Platform share is stored
+/// as a row with recipientUserId = null + label = "Platform". Sum of percents
+/// across a deal's splits is enforced at write time to be exactly 100.
+model CommissionSplit {
+  id              String    @id @default(uuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id])
+  dealId          String
+  deal            Deal      @relation(fields: [dealId], references: [id])
+  recipientUserId String?
+  recipient       User?     @relation("CommissionSplitRecipient", fields: [recipientUserId], references: [id])
+  label           String
+  percent         Decimal   @db.Decimal(5, 2)
+  paidAt          DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([dealId])
+  @@index([companyId])
+  @@index([recipientUserId])
 }
 
 model Commission {

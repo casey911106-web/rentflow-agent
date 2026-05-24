@@ -1,5 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+
+interface SplitInput {
+  recipientUserId?: string | null;
+  label: string;
+  percent: number;
+  notes?: string;
+}
 
 @Injectable()
 export class DealsService {
@@ -26,6 +33,10 @@ export class DealsService {
         property: true,
         fieldAgent: { include: { user: true } },
         commission: { include: { payments: true } },
+        splits: {
+          include: { recipient: { select: { id: true, fullName: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
     if (!deal) throw new NotFoundException('Deal not found');
@@ -110,6 +121,33 @@ export class DealsService {
       });
       await tx.lead.update({ where: { id: deal.leadId }, data: { status: 'lost' } });
       return updated;
+    });
+  }
+
+  /** Replace ALL splits for a deal in one transaction. Sum of percents must
+   *  equal 100. Pass an empty array to clear. */
+  async replaceSplits(companyId: string, id: string, splits: SplitInput[]) {
+    const deal = await this.findById(companyId, id);
+    if (splits.length === 0) {
+      await this.prisma.commissionSplit.deleteMany({ where: { dealId: id } });
+      return [];
+    }
+    const total = splits.reduce((acc, s) => acc + Number(s.percent), 0);
+    if (Math.abs(total - 100) > 0.01) {
+      throw new BadRequestException(`Splits must sum to 100 (got ${total.toFixed(2)})`);
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.commissionSplit.deleteMany({ where: { dealId: id } });
+      return tx.commissionSplit.createMany({
+        data: splits.map((s) => ({
+          companyId: deal.companyId,
+          dealId: id,
+          recipientUserId: s.recipientUserId ?? null,
+          label: s.label,
+          percent: s.percent,
+          notes: s.notes ?? null,
+        })),
+      });
     });
   }
 

@@ -25,6 +25,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { HostawayModule } from './modules/integrations/hostaway/hostaway.module';
 import { PublicModule } from './modules/public/public.module';
 import { PlacementsModule } from './modules/placements/placements.module';
+import { AvailabilityChecksModule } from './modules/availability-checks/availability-checks.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { CostsModule } from './modules/costs/costs.module';
 import { SystemDocsModule } from './modules/system-docs/system-docs.module';
@@ -63,6 +64,7 @@ import { RolesGuard } from './modules/auth/roles.guard';
     HostawayModule,
     PublicModule,
     PlacementsModule,
+    AvailabilityChecksModule,
     SchedulerModule,
     CostsModule,
     SystemDocsModule,

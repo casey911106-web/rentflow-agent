@@ -95,6 +95,19 @@ export class PushService {
     });
   }
 
+  /** Availability check assigned to a field agent — confirm with the owner. */
+  async notifyAvailabilityCheckAssigned(
+    userId: string,
+    info: { propertyCode: string; propertyName: string },
+  ): Promise<void> {
+    return this.send(userId, {
+      title: '🏠 Confirma disponibilidad',
+      body: `${info.propertyCode} — ${info.propertyName}. Pregunta al dueño. 24h.`,
+      data: { kind: 'availability_check_assigned', link: '/availability' },
+      channelId: 'availability',
+    });
+  }
+
   /** A lead replied — operator(s) on the company should see it fast. */
   async notifyLeadReplied(
     userIds: string[],
