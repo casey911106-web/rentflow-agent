@@ -31,6 +31,8 @@ interface PropertyDetail {
   qualityScore: number;
   readinessScore: number;
   owner: { id: string; fullName: string; phoneE164: string; trustScore: number } | null;
+  sourcedByFieldAgent: { id: string; fullName: string } | null;
+  assignedFieldAgent: { id: string; fullName: string } | null;
   media: Array<{
     id: string;
     kind: string;
@@ -550,6 +552,14 @@ export default function PropertyDetailPage({ params }: { params: { id: string } 
             )}
           </div>
 
+          {/* Field agents — sourced & assigned */}
+          <FieldAgentsPanel
+            propertyId={params.id}
+            sourcedBy={property.sourcedByFieldAgent}
+            assignedTo={property.assignedFieldAgent}
+            onSaved={() => qc.invalidateQueries({ queryKey: ['properties', params.id] })}
+          />
+
           {/* Availability blocks */}
           <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
             <h3 className="mb-3 text-sm uppercase tracking-wide text-gray-medium">Availability blocks</h3>
@@ -978,6 +988,91 @@ function MediaEditor({
           </button>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Two-slot field-agent assignment panel.
+ *  - "Sourced by": the agent who found this property direct with the owner.
+ *    Drives the 10% sourcing bucket of the monthly commission split.
+ *  - "Assigned to": the agent who handles viewings + counts as the closer
+ *    on deal close (30% bucket).
+ *  Both default to none and are editable independently. */
+function FieldAgentsPanel({
+  propertyId,
+  sourcedBy,
+  assignedTo,
+  onSaved,
+}: {
+  propertyId: string;
+  sourcedBy: { id: string; fullName: string } | null;
+  assignedTo: { id: string; fullName: string } | null;
+  onSaved: () => void;
+}) {
+  const { data: agents } = useQuery({
+    queryKey: ['field-agents'],
+    queryFn: () =>
+      api<Array<{ id: string; fullName: string; email: string; roles: string[] }>>(
+        '/users?role=field_agent',
+      ),
+  });
+
+  const save = useMutation({
+    mutationFn: (patch: { sourcedByFieldAgentId?: string | null; assignedFieldAgentId?: string | null }) =>
+      api(`/properties/${propertyId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    onSuccess: () => onSaved(),
+  });
+
+  const options = (agents ?? []).filter((a) => a.roles.includes('field_agent'));
+
+  return (
+    <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
+      <h3 className="mb-3 text-sm uppercase tracking-wide text-gray-medium">Field agents</h3>
+
+      <div className="space-y-3">
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-gray-medium">
+            Sourced by <span className="font-normal">(brought direct from owner — 10% bucket)</span>
+          </span>
+          <select
+            value={sourcedBy?.id ?? ''}
+            onChange={(e) =>
+              save.mutate({ sourcedByFieldAgentId: e.target.value || null })
+            }
+            disabled={save.isPending}
+            className="w-full rounded-md border border-gray-light px-3 py-2 text-sm"
+          >
+            <option value="">— Not set —</option>
+            {options.map((a) => (
+              <option key={a.id} value={a.id}>{a.fullName}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-gray-medium">
+            Assigned to viewings <span className="font-normal">(closer — 30% bucket)</span>
+          </span>
+          <select
+            value={assignedTo?.id ?? ''}
+            onChange={(e) =>
+              save.mutate({ assignedFieldAgentId: e.target.value || null })
+            }
+            disabled={save.isPending}
+            className="w-full rounded-md border border-gray-light px-3 py-2 text-sm"
+          >
+            <option value="">— Round-robin (no fixed agent) —</option>
+            {options.map((a) => (
+              <option key={a.id} value={a.id}>{a.fullName}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <p className="mt-3 text-[11px] text-gray-medium">
+        Commission split (from June 2026): 30% closer · 10% monthly top performer · 10%
+        sourcer (or even split across all field agents if not set) · 50% platform.
+      </p>
     </div>
   );
 }

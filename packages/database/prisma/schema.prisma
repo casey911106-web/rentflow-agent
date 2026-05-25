@@ -362,6 +362,7 @@ model User {
   decidedSuggestions  Suggestion[]     @relation("SuggestionDecidedBy")
   submittedProperties Property[]       @relation("PropertySubmittedBy")
   assignedProperties  Property[]       @relation("PropertyAssignedAgent")
+  sourcedProperties   Property[]       @relation("PropertySourcedBy")
   partnerDeals        Deal[]           @relation("DealPartner")
   scheduledChannelPosts ScheduledChannelPost[] @relation("ScheduledChannelPostCreator")
 
@@ -597,6 +598,13 @@ model Property {
   /// usual round-robin pick.
   assignedFieldAgentId    String?
   assignedFieldAgent      User?          @relation("PropertyAssignedAgent", fields: [assignedFieldAgentId], references: [id])
+  /// Field-agent who originated this listing by talking to the owner directly
+  /// (not via the partner WhatsApp ingestion, which uses submittedByUserId).
+  /// Drives the 'sourcing' bucket of the monthly commission split: when a
+  /// Deal closes in month M, the agent in this field gets 10% of the deal
+  /// commission as a bonus.
+  sourcedByFieldAgentId   String?
+  sourcedByFieldAgent     User?          @relation("PropertySourcedBy", fields: [sourcedByFieldAgentId], references: [id])
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
   deletedAt               DateTime?

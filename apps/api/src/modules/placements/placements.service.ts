@@ -351,19 +351,13 @@ export class PlacementsService {
     });
   }
 
-  /** Publisher leaderboard for a date window (default last 30 days).
-   *  Metrics are REAL engagement signals — not the publisher-reported
-   *  groupSize, which we used to inflate as "reach". `totalClicks` is the
-   *  sum of trackingSlug redirects (counted server-side); `attributedLeads`
-   *  is the count of Leads that landed via those clicks. Group membership
-   *  is meaningless without view rate so we don't surface it. */
-  async leaderboard(companyId: string, sinceDays = 30) {
-    const since = new Date();
-    since.setDate(since.getDate() - sinceDays);
+  /** Publisher leaderboard for an explicit window. Internal — `leaderboard`
+   *  and `monthlyLeaderboard` both delegate here. */
+  private async leaderboardForWindow(companyId: string, since: Date, until: Date) {
 
     const [placements, assignments] = await Promise.all([
       this.prisma.postPlacement.findMany({
-        where: { companyId, publishedAt: { gte: since }, removedAt: null },
+        where: { companyId, publishedAt: { gte: since, lt: until }, removedAt: null },
         select: {
           publisherUserId: true,
           clicks: true,
@@ -373,7 +367,7 @@ export class PlacementsService {
       // Pull every assignment that LANDED in the window — fulfilled/expired
       // both count, so ops can see drop-off per publisher.
       this.prisma.postAssignment.findMany({
-        where: { companyId, assignedAt: { gte: since } },
+        where: { companyId, assignedAt: { gte: since, lt: until } },
         select: { assigneeUserId: true, status: true },
       }),
     ]);
@@ -439,6 +433,27 @@ export class PlacementsService {
       })
       // Rank by leads first (real conversions), tiebreak on clicks.
       .sort((a, b) => (b.attributedLeads - a.attributedLeads) || (b.totalClicks - a.totalClicks));
+  }
+
+  /** Publisher leaderboard for a date window (default last 30 days).
+   *  Metrics are REAL engagement signals — not the publisher-reported
+   *  groupSize, which we used to inflate as "reach". `totalClicks` is the
+   *  sum of trackingSlug redirects (counted server-side); `attributedLeads`
+   *  is the count of Leads that landed via those clicks. Group membership
+   *  is meaningless without view rate so we don't surface it. */
+  async leaderboard(companyId: string, sinceDays = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - sinceDays);
+    return this.leaderboardForWindow(companyId, since, new Date());
+  }
+
+  /** Calendar-month leaderboard (UTC). Powers the monthly commission split
+   *  algorithm: only placements published between [monthStart, nextMonth)
+   *  count toward the agent's performance score for that month. */
+  async monthlyLeaderboard(companyId: string, year: number, month: number) {
+    const monthStart = new Date(Date.UTC(year, month - 1, 1));
+    const monthEnd = new Date(Date.UTC(year, month, 1));
+    return this.leaderboardForWindow(companyId, monthStart, monthEnd);
   }
 }
 

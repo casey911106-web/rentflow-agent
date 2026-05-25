@@ -34,6 +34,26 @@ interface DetailsCoverage {
   openTasks: number;
 }
 
+interface BonusStandings {
+  year: number;
+  month: number;
+  performance: Array<{
+    userId: string;
+    fullName: string | null;
+    leads: number;
+    clicks: number;
+    completionRate: number;
+    score: number;
+  }>;
+  sourcing: Array<{
+    userId: string;
+    fullName: string | null;
+    sourcedCount: number;
+  }>;
+  topPerformer: { userId: string; fullName: string | null; score: number } | null;
+  topSourcer: { userId: string; fullName: string | null; sourcedCount: number } | null;
+}
+
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30);
 
@@ -45,6 +65,11 @@ export default function AnalyticsPage() {
   const { data: coverage } = useQuery({
     queryKey: ['analytics', 'details-coverage'],
     queryFn: () => api<DetailsCoverage>('/property-details/coverage'),
+  });
+
+  const { data: bonus } = useQuery({
+    queryKey: ['analytics', 'bonus-pool-standings'],
+    queryFn: () => api<BonusStandings>('/bonus-pool/standings'),
   });
 
   const [board, setBoard] = useState<LeaderboardRow[]>([]);
@@ -156,6 +181,92 @@ export default function AnalyticsPage() {
           Coverage = properties whose details JSON has every required question answered.
           When this is high, the WhatsApp AI agent answers guest FAQs without escalating.
         </p>
+      </section>
+
+      {/* SECTION 3.5 — Bonus pool standings (commission split preview) */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-medium">
+          Bonus pool · {bonus ? `${bonus.year}-${String(bonus.month).padStart(2, '0')}` : '—'}
+        </h2>
+        <p className="text-xs text-gray-medium">
+          Quién va ganando cada bucket del split mensual. Aplica a deals cerrados desde junio 2026:
+          30% al closer (assigned field agent al cierre) · 10% al top performer del mes · 10% al
+          sourcer del property (o split equitativo si no hay sourcer) · 50% plataforma.
+        </p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded-md border border-gray-light bg-white p-4 shadow-card">
+            <h3 className="mb-2 text-xs uppercase tracking-wide text-gray-medium">
+              Top performer (10%) — score 0.60 leads · 0.25 clicks · 0.15 completion
+            </h3>
+            {bonus && bonus.performance.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead className="text-left text-[10px] uppercase tracking-wide text-gray-medium">
+                  <tr>
+                    <th className="py-1">#</th>
+                    <th className="py-1">Publisher</th>
+                    <th className="py-1 text-right">Leads</th>
+                    <th className="py-1 text-right">Clicks</th>
+                    <th className="py-1 text-right">Done%</th>
+                    <th className="py-1 text-right">Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bonus.performance.slice(0, 6).map((r, i) => (
+                    <tr key={r.userId} className={`border-t border-gray-light ${i === 0 ? 'bg-teal/5' : ''}`}>
+                      <td className="py-1.5 font-mono text-xs text-gray-medium">{i + 1}</td>
+                      <td className="py-1.5">
+                        <span className={i === 0 ? 'font-bold text-teal' : 'font-semibold text-navy-deep'}>
+                          {r.fullName ?? '—'}
+                        </span>
+                      </td>
+                      <td className="py-1.5 text-right font-semibold">{r.leads}</td>
+                      <td className="py-1.5 text-right">{r.clicks}</td>
+                      <td className="py-1.5 text-right">{Math.round(r.completionRate * 100)}%</td>
+                      <td className="py-1.5 text-right font-mono text-xs">{r.score.toFixed(3)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-xs text-gray-medium">No activity this month yet.</p>
+            )}
+          </div>
+
+          <div className="rounded-md border border-gray-light bg-white p-4 shadow-card">
+            <h3 className="mb-2 text-xs uppercase tracking-wide text-gray-medium">
+              Top sourcer (10%) — properties brought direct from owner this month
+            </h3>
+            {bonus && bonus.sourcing.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead className="text-left text-[10px] uppercase tracking-wide text-gray-medium">
+                  <tr>
+                    <th className="py-1">#</th>
+                    <th className="py-1">Field agent</th>
+                    <th className="py-1 text-right">Properties sourced</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bonus.sourcing.slice(0, 6).map((r, i) => (
+                    <tr key={r.userId} className={`border-t border-gray-light ${i === 0 ? 'bg-teal/5' : ''}`}>
+                      <td className="py-1.5 font-mono text-xs text-gray-medium">{i + 1}</td>
+                      <td className="py-1.5">
+                        <span className={i === 0 ? 'font-bold text-teal' : 'font-semibold text-navy-deep'}>
+                          {r.fullName ?? '—'}
+                        </span>
+                      </td>
+                      <td className="py-1.5 text-right font-semibold">{r.sourcedCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-xs text-gray-medium">
+                Nobody has been marked as the sourcer on a property this month yet. Set
+                &quot;Sourced by&quot; on property cards to start counting.
+              </p>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* SECTION 4 — Publisher leaderboard */}

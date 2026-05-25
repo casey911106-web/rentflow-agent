@@ -39,6 +39,7 @@ export class PropertiesService {
         owner: true,
         submittedBy: { select: { id: true, fullName: true, email: true } },
         assignedFieldAgent: { select: { id: true, fullName: true } },
+        sourcedByFieldAgent: { select: { id: true, fullName: true } },
         _count: { select: { leads: true, postPackages: true, viewings: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -50,6 +51,8 @@ export class PropertiesService {
       where: { id, companyId, deletedAt: null },
       include: {
         owner: true,
+        sourcedByFieldAgent: { select: { id: true, fullName: true } },
+        assignedFieldAgent: { select: { id: true, fullName: true } },
         media: {
           include: { file: true },
           orderBy: { position: 'asc' },
@@ -155,6 +158,9 @@ export class PropertiesService {
     if ('ownerId' in body) (data as Record<string, unknown>).ownerId = body.ownerId;
     if ('assignedFieldAgentId' in body) {
       (data as Record<string, unknown>).assignedFieldAgentId = body.assignedFieldAgentId;
+    }
+    if ('sourcedByFieldAgentId' in body) {
+      (data as Record<string, unknown>).sourcedByFieldAgentId = body.sourcedByFieldAgentId;
     }
 
     const property = await this.prisma.property.update({ where: { id }, data });

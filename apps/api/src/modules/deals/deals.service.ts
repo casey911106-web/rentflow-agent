@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BonusPoolService } from '../bonus-pool/bonus-pool.service';
 
 interface SplitInput {
   recipientUserId?: string | null;
@@ -10,7 +11,12 @@ interface SplitInput {
 
 @Injectable()
 export class DealsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(DealsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bonus: BonusPoolService,
+  ) {}
 
   list(companyId: string) {
     return this.prisma.deal.findMany({
@@ -97,8 +103,8 @@ export class DealsService {
 
   async markWon(companyId: string, id: string) {
     const deal = await this.findById(companyId, id);
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.deal.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.deal.update({
         where: { id },
         data: { status: 'won', closedAt: new Date() },
       });
@@ -108,8 +114,38 @@ export class DealsService {
         });
       }
       await tx.lead.update({ where: { id: deal.leadId }, data: { status: 'won' } });
-      return updated;
+      return u;
     });
+
+    // Auto-generate commission splits using the bonus-pool policy
+    // (30% closer / 10% top performer / 10% sourcer or even split / 50%
+    // platform). Only kicks in for deals closed on/after the algorithm's
+    // effective date so we don't rewrite older deals. Best-effort — log
+    // and continue if it fails so the close itself isn't blocked.
+    try {
+      const splits = await this.bonus.buildDealSplits(id);
+      if (splits.length > 0) {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.commissionSplit.deleteMany({ where: { dealId: id } });
+          await tx.commissionSplit.createMany({
+            data: splits.map((s) => ({
+              companyId,
+              dealId: id,
+              recipientUserId: s.recipientUserId ?? null,
+              label: s.label,
+              percent: s.percent,
+              notes: s.notes ?? null,
+            })),
+          });
+        });
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Bonus pool split generation failed for deal ${id}: ${(err as Error).message}`,
+      );
+    }
+
+    return updated;
   }
 
   async markLost(companyId: string, id: string, reason: string) {
