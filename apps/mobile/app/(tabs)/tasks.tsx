@@ -276,8 +276,28 @@ function PublishFlow({ a, onClose }: { a: Assignment; onClose: () => void }) {
   const canComplete = confirmedCount >= MIN_PLACEMENTS;
 
   async function shareCaption() {
-    const body = `${caption}\n\n${trackingShort}`;
-    await Share.share({ message: body });
+    // Always mint a draft placement first so the shared URL carries the
+    // per-placement slug (?s=<SLUG>). Without it, clicks land on the
+    // marketplace with no `[ref:` marker → inbound WA leads attach to the
+    // PostPackage but NOT to a specific publisher → leaderboard shows 0
+    // attributed leads for the agent (the bug we hit in May 2026).
+    if (generating) return;
+    setGenerating(true);
+    try {
+      const res = await api<DraftResponse>(
+        `/post-packages/${a.postPackage.id}/placements/draft`,
+        { method: 'POST' },
+      );
+      const trackedUrl = res.trackingUrl ?? trackingShort;
+      if (res.trackingSlug) setLastCopiedSlug(res.trackingSlug);
+      const body = `${caption}\n\n${trackedUrl}`;
+      await Share.share({ message: body });
+      loadPlacements();
+    } catch (err) {
+      Alert.alert('Share failed', (err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
   }
 
   /** One-tap: create a draft placement on the server, copy its unique
