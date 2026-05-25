@@ -6,6 +6,8 @@ import { KpiCard } from '@rentflow/ui';
 import { api } from '@/lib/api';
 
 interface FunnelData {
+  year: number;
+  month: number;
   posts: number;
   leads: number;
   qualified: number;
@@ -54,12 +56,47 @@ interface BonusStandings {
   topSourcer: { userId: string; fullName: string | null; sourcedCount: number } | null;
 }
 
+/** Current UTC year/month — used as the default selection. */
+function currentYearMonth(): { year: number; month: number } {
+  const now = new Date();
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+}
+
+/** Inclusive label like "Mayo 2026" for the month header. */
+function monthLabel(year: number, month: number, locale = 'es-ES'): string {
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString(locale, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** Generate the last N month options (newest first) for the dropdown.
+ *  Calendar months are anchored at day 1 — picking "May 2026" means
+ *  [2026-05-01 00:00 UTC, 2026-06-01 00:00 UTC). */
+function recentMonths(n: number): Array<{ year: number; month: number; label: string }> {
+  const out: Array<{ year: number; month: number; label: string }> = [];
+  const { year, month } = currentYearMonth();
+  for (let i = 0; i < n; i++) {
+    const m = month - i;
+    const adjMonth = ((m - 1) % 12 + 12) % 12 + 1;
+    const adjYear = year + Math.floor((m - 1) / 12);
+    out.push({ year: adjYear, month: adjMonth, label: monthLabel(adjYear, adjMonth) });
+  }
+  return out;
+}
+
 export default function AnalyticsPage() {
-  const [days, setDays] = useState(30);
+  const initial = currentYearMonth();
+  const [year, setYear] = useState(initial.year);
+  const [month, setMonth] = useState(initial.month);
+  const months = recentMonths(13); // current + 12 prior
+
+  const monthParams = `?year=${year}&month=${month}`;
 
   const { data: funnel } = useQuery({
-    queryKey: ['analytics', 'funnel'],
-    queryFn: () => api<FunnelData>('/analytics/funnel'),
+    queryKey: ['analytics', 'funnel', year, month],
+    queryFn: () => api<FunnelData>(`/analytics/funnel${monthParams}`),
   });
 
   const { data: coverage } = useQuery({
@@ -68,8 +105,8 @@ export default function AnalyticsPage() {
   });
 
   const { data: bonus } = useQuery({
-    queryKey: ['analytics', 'bonus-pool-standings'],
-    queryFn: () => api<BonusStandings>('/bonus-pool/standings'),
+    queryKey: ['analytics', 'bonus-pool-standings', year, month],
+    queryFn: () => api<BonusStandings>(`/bonus-pool/standings${monthParams}`),
   });
 
   const [board, setBoard] = useState<LeaderboardRow[]>([]);
@@ -80,12 +117,12 @@ export default function AnalyticsPage() {
     let active = true;
     setBoardLoading(true);
     setBoardError(null);
-    api<LeaderboardRow[]>(`/admin/publishing/leaderboard?sinceDays=${days}`)
+    api<LeaderboardRow[]>(`/admin/publishing/leaderboard${monthParams}`)
       .then((data) => active && setBoard(data))
       .catch((e) => active && setBoardError((e as Error).message))
       .finally(() => active && setBoardLoading(false));
     return () => { active = false; };
-  }, [days]);
+  }, [monthParams]);
 
   const stages = [
     { label: 'Post packages', value: funnel?.posts ?? 0,             color: '#082B5F' },
@@ -101,18 +138,61 @@ export default function AnalyticsPage() {
   const totalClicks = board.reduce((sum, r) => sum + r.totalClicks, 0);
   const totalLeads = board.reduce((sum, r) => sum + r.attributedLeads, 0);
 
+  const selectedValue = `${year}-${String(month).padStart(2, '0')}`;
+  const isCurrentMonth = year === initial.year && month === initial.month;
+
   return (
     <div className="space-y-10">
-      <header>
-        <h1 className="text-2xl font-bold text-navy-deep">Analytics</h1>
-        <p className="mt-1 text-sm text-gray-medium">
-          Negocio end-to-end en un solo lugar: pipeline → funnel → publishers → calidad de catálogo.
-        </p>
+      <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-navy-deep">Analytics</h1>
+          <p className="mt-1 text-sm text-gray-medium">
+            Negocio end-to-end en un solo lugar: pipeline → funnel → publishers → calidad de catálogo.
+            Todo se mide por mes calendario (día 1 al último), eligible abajo.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-medium">Mes</span>
+          <select
+            value={selectedValue}
+            onChange={(e) => {
+              const [y, m] = e.target.value.split('-').map(Number);
+              setYear(y);
+              setMonth(m);
+            }}
+            className="rounded-md border border-gray-light px-3 py-1.5 text-sm font-semibold text-navy-deep"
+          >
+            {months.map((m) => {
+              const v = `${m.year}-${String(m.month).padStart(2, '0')}`;
+              const isCurrent = m.year === initial.year && m.month === initial.month;
+              return (
+                <option key={v} value={v}>
+                  {m.label}{isCurrent ? ' · current' : ''}
+                </option>
+              );
+            })}
+          </select>
+          {!isCurrentMonth ? (
+            <button
+              type="button"
+              onClick={() => { setYear(initial.year); setMonth(initial.month); }}
+              className="rounded-md border border-gray-light bg-white px-2 py-1 text-[11px] font-semibold text-gray-dark hover:bg-offwhite"
+            >
+              Reset
+            </button>
+          ) : null}
+        </label>
       </header>
+      <p className="-mt-6 text-xs text-gray-medium">
+        Mostrando <strong className="text-navy-deep">{monthLabel(year, month)}</strong>
+        {isCurrentMonth ? ' (mes en curso)' : ''}.
+      </p>
 
       {/* SECTION 1 — Overview KPIs */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-medium">Overview</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-medium">
+          Overview · {monthLabel(year, month)}
+        </h2>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <KpiCard label="Posts published" value={funnel?.posts ?? 0} />
           <KpiCard label="Leads" value={funnel?.leads ?? 0} />
@@ -135,7 +215,7 @@ export default function AnalyticsPage() {
       {/* SECTION 2 — Funnel */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-medium">
-          Funnel: Post → Lead → Qualified → Viewing → Deal
+          Funnel · {monthLabel(year, month)} · Post → Lead → Qualified → Viewing → Deal
         </h2>
         <div className="rounded-md border border-gray-light bg-white p-6 shadow-card">
           <div className="space-y-2">
@@ -186,7 +266,7 @@ export default function AnalyticsPage() {
       {/* SECTION 3.5 — Bonus pool standings (commission split preview) */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-medium">
-          Bonus pool · {bonus ? `${bonus.year}-${String(bonus.month).padStart(2, '0')}` : '—'}
+          Bonus pool · {monthLabel(year, month)}
         </h2>
         <p className="text-xs text-gray-medium">
           Quién va ganando cada bucket del split mensual. Aplica a deals cerrados desde junio 2026:
@@ -271,24 +351,9 @@ export default function AnalyticsPage() {
 
       {/* SECTION 4 — Publisher leaderboard */}
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-medium">
-            Publisher leaderboard
-          </h2>
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-medium">Window:</label>
-            <select
-              value={days}
-              onChange={(e) => setDays(Number(e.target.value))}
-              className="rounded-md border border-gray-light px-3 py-1 text-xs"
-            >
-              <option value={7}>Last 7 days</option>
-              <option value={30}>Last 30 days</option>
-              <option value={90}>Last 90 days</option>
-              <option value={365}>Last year</option>
-            </select>
-          </div>
-        </div>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-medium">
+          Publisher leaderboard · {monthLabel(year, month)}
+        </h2>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <KpiCard label="Total placements" value={totalPlacements.toLocaleString()} />

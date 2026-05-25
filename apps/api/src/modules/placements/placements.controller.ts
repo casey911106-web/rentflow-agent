@@ -109,15 +109,27 @@ export class PlacementsController {
     return this.placements.remove(user.companyId, user.sub, isAdmin, id);
   }
 
-  /** Publisher leaderboard. */
+  /** Publisher leaderboard. Pass either:
+   *   - `?year=&month=` for a calendar-month snapshot (preferred — the
+   *     `/analytics` page passes these so every section is month-aligned), OR
+   *   - `?sinceDays=N` for a rolling last-N-days window (legacy).
+   *  When both are absent we default to the current UTC month so callers that
+   *  forget the params still get the most-useful default. */
   @Get('admin/publishing/leaderboard')
   @UseGuards(RolesGuard)
   @Roles('super_admin', 'ops_manager')
   leaderboard(
     @CurrentUser() user: JwtPayload,
     @Query('sinceDays') sinceDays?: string,
+    @Query('year') yearStr?: string,
+    @Query('month') monthStr?: string,
   ) {
-    const days = sinceDays ? Number(sinceDays) : 30;
-    return this.placements.leaderboard(user.companyId, days);
+    if (sinceDays) {
+      return this.placements.leaderboard(user.companyId, Number(sinceDays));
+    }
+    const now = new Date();
+    const year = yearStr ? Number(yearStr) : now.getUTCFullYear();
+    const month = monthStr ? Number(monthStr) : now.getUTCMonth() + 1;
+    return this.placements.monthlyLeaderboard(user.companyId, year, month);
   }
 }
