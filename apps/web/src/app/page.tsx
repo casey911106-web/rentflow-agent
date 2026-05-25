@@ -22,6 +22,7 @@ const TYPE_LABEL: Record<string, string> = {
   three_bedroom: '3BR',
   villa: 'Villa',
   master_room: 'Master room',
+  standard_room: 'Standard room',
   shared_room: 'Shared room',
   bed_space: 'Bed space',
   partition: 'Partition',
@@ -107,6 +108,7 @@ export default async function MarketplacePage({
             <option value="three_bedroom">3 Bedroom</option>
             <option value="villa">Villa</option>
             <option value="master_room">Master room</option>
+            <option value="standard_room">Standard room</option>
             <option value="shared_room">Shared room</option>
           </select>
           <input

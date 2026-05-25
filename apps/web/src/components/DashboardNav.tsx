@@ -11,7 +11,6 @@ import {
   MessageCircle,
   Calendar,
   Wallet,
-  BarChart3,
   Megaphone,
   Settings,
   ClipboardCheck,
@@ -40,7 +39,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { href: '/dashboard',    label: 'Overview',     icon: <Home size={18} />,           roles: ALL_ROLES },
+  { href: '/analytics',    label: 'Analytics',    icon: <Home size={18} />,           roles: ADMIN_OPS },
   { href: '/properties',   label: 'Properties',   icon: <Building2 size={18} />,      roles: ALL_ROLES },
   { href: '/owners',       label: 'Owners',       icon: <ClipboardCheck size={18} />, roles: ADMIN_OPS },
   { href: '/leads',        label: 'Leads',        icon: <Users size={18} />,          roles: ADMIN_OPS },
@@ -49,19 +48,18 @@ const NAV: NavItem[] = [
   { href: '/viewings',     label: 'Viewings',     icon: <Calendar size={18} />,       roles: ALL_ROLES },
   { href: '/issues',       label: 'Issues',       icon: <AlertTriangle size={18} />,  roles: ALL_ROLES },
   { href: '/posting',      label: 'Fast Posting', icon: <Megaphone size={18} />,      roles: ADMIN_OPS },
-  { href: '/admin/publishing', label: 'Publishing', icon: <BarChart3 size={18} />,    roles: ADMIN_OPS },
   { href: '/admin/growth-campaigns', label: 'Channel Growth', icon: <Megaphone size={18} />, roles: ADMIN_OPS },
   { href: '/deals',        label: 'Deals',        icon: <Wallet size={18} />,         roles: ADMIN_OPS },
-  { href: '/analytics',    label: 'Analytics',    icon: <BarChart3 size={18} />,      roles: ADMIN_OPS },
   { href: '/how-it-works', label: 'How it works', icon: <HelpCircle size={18} />,     roles: ALL_ROLES },
   { href: '/admin/users',  label: 'Users',        icon: <UserCog size={18} />,        roles: SUPER_ONLY },
+  { href: '/admin/property-questions', label: 'Property questions', icon: <ClipboardCheck size={18} />, roles: SUPER_ONLY },
   { href: '/admin/costs',  label: 'Costs',        icon: <Wallet size={18} />,         roles: SUPER_ONLY },
   { href: '/settings',     label: 'Settings',     icon: <Settings size={18} />,       roles: ALL_ROLES },
 ];
 
 function isActive(pathname: string | null, href: string) {
   if (!pathname) return false;
-  if (href === '/dashboard') return pathname === '/dashboard';
+  if (href === '/analytics') return pathname === '/analytics';
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

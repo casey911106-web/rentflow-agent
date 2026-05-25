@@ -589,6 +589,85 @@ async function main() {
     });
   }
 
+  // Initial property-detail questions — admin can edit/extend in /admin/property-questions.
+  // These are the basic FAQs guests always ask that we currently don't know without
+  // pinging the owner ("preguntaré y volveré a ti"). The field agent fills them once
+  // when they confirm the listing with the owner.
+  const initialQuestions: Array<{
+    key: string;
+    label: string;
+    helperText?: string;
+    type: 'text' | 'number' | 'boolean' | 'enum' | 'multi_enum';
+    options?: string[];
+    position: number;
+  }> = [
+    {
+      key: 'occupants_count',
+      label: 'Cuántas personas viven actualmente en el apartamento',
+      helperText: 'Total de inquilinos en la unidad completa, incluyendo otras habitaciones.',
+      type: 'number',
+      position: 10,
+    },
+    {
+      key: 'nationalities',
+      label: 'Nacionalidades de los inquilinos actuales',
+      helperText: 'Ej: "Filipino, Indian, Egyptian". Texto libre.',
+      type: 'text',
+      position: 20,
+    },
+    {
+      key: 'bathroom',
+      label: 'Tipo de baño',
+      type: 'enum',
+      options: ['private', 'shared'],
+      position: 30,
+    },
+    {
+      key: 'bathroom_shared_with',
+      label: 'Si es compartido, ¿entre cuántas personas/habitaciones?',
+      helperText: 'Dejar vacío si es privado.',
+      type: 'text',
+      position: 40,
+    },
+    {
+      key: 'daily_cleaning',
+      label: '¿Incluye servicio de limpieza?',
+      type: 'enum',
+      options: ['none', 'daily', 'weekly', 'biweekly'],
+      position: 50,
+    },
+    {
+      key: 'extra_services',
+      label: 'Otros servicios incluidos',
+      helperText: 'Seleccionar todos los que apliquen.',
+      type: 'multi_enum',
+      options: ['wifi', 'utilities', 'laundry', 'parking', 'kitchen_access', 'gym', 'pool'],
+      position: 60,
+    },
+  ];
+
+  for (const q of initialQuestions) {
+    await prisma.propertyDetailQuestion.upsert({
+      where: { companyId_key: { companyId: company.id, key: q.key } },
+      update: {
+        label: q.label,
+        helperText: q.helperText,
+        type: q.type,
+        options: q.options as any,
+        position: q.position,
+      },
+      create: {
+        companyId: company.id,
+        key: q.key,
+        label: q.label,
+        helperText: q.helperText,
+        type: q.type,
+        options: q.options as any,
+        position: q.position,
+      },
+    });
+  }
+
   console.log('✅ Seed complete.');
   console.log(`Company: ${company.name}`);
   console.log(`Login: admin@rentflow.demo / rentflow123 (stub hash; real auth tba)`);

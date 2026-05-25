@@ -92,6 +92,7 @@ const TYPE_OPTIONS = [
   'bed_space',
   'shared_room',
   'partition',
+  'standard_room',
   'master_room',
   'studio',
   'one_bedroom',

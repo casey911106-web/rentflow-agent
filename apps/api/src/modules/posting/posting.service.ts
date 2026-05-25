@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { buildClickToChatUrl } from '@rentflow/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ContentService } from '../content/content.service';
+import { PropertyDetailsService } from '../property-details/property-details.service';
 
 /** Minimum readiness score before a Fast Posting package can be generated.
  *  Lowered from 60 to 50 so small data gaps (no video, no commission policy
@@ -18,6 +19,7 @@ export class PostingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly content: ContentService,
+    private readonly propertyDetails: PropertyDetailsService,
   ) {}
 
   /** List the company's automated channels (Telegram, IG, FB pages, etc). */
@@ -443,7 +445,7 @@ export class PostingService {
     userId: string,
     body: { channelId?: string; channelName?: string; url?: string },
   ) {
-    await this.findById(companyId, id);
+    const pkg = await this.findById(companyId, id);
     let channelId = body.channelId;
     if (!channelId && body.channelName) {
       const ch = await this.prisma.postChannel.upsert({
@@ -453,7 +455,7 @@ export class PostingService {
       });
       channelId = ch.id;
     }
-    return this.prisma.postPackage.update({
+    const updated = await this.prisma.postPackage.update({
       where: { id },
       data: {
         status: 'published',
@@ -464,6 +466,20 @@ export class PostingService {
         publishedAt: new Date(),
       },
     });
+
+    // First publisher to post a property listing also gets the property-details
+    // task — they're already in contact with the owner so it's the cheapest
+    // moment to ask the basic FAQs. The scheduler will rotate the task if
+    // they don't fill it within TTL.
+    if (pkg.propertyId && pkg.kind === 'property_listing') {
+      this.propertyDetails
+        .ensureCheck(companyId, pkg.propertyId, userId)
+        .catch((err) =>
+          this.logger.warn(`ensureCheck failed for property ${pkg.propertyId}: ${(err as Error).message}`),
+        );
+    }
+
+    return updated;
   }
 
   /** Rebuild captions for every active PostPackage tied to a Property

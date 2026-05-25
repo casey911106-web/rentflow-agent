@@ -27,6 +27,7 @@ function humanType(t: string): string {
     three_bedroom: '3BR',
     villa: 'Villa',
     master_room: 'Master room',
+    standard_room: 'Standard room',
     shared_room: 'Shared room',
     partition: 'Partition',
     bed_space: 'Bed space',

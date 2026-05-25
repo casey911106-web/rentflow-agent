@@ -206,6 +206,11 @@ export class SuggestionEngineService {
           depositAed: true,
           occupancyMax: true,
           rentalMinMonths: true,
+          // Field-agent answers to the PropertyDetailQuestion catalogue.
+          // Surfaced in the prompt so Claude can answer guest FAQs ("how
+          // many people live there?", "private bathroom?", "daily cleaning?")
+          // without falling back to "let me check and get back to you".
+          details: true,
         },
       }),
       this.prisma.viewing.findMany({
@@ -321,6 +326,7 @@ export class SuggestionEngineService {
       depositAed: { toString(): string } | string | null;
       occupancyMax: number | null;
       rentalMinMonths: number | null;
+      details: unknown;
     }>,
     fewShot: Array<{ state: string; aiSuggestion: string; operatorEdit: string; contextSnapshot: unknown }>,
   ): SystemBlock[] {
@@ -479,6 +485,7 @@ Do not include any text outside the JSON object.
       depositAed: { toString(): string } | string | null;
       occupancyMax: number | null;
       rentalMinMonths: number | null;
+      details: unknown;
     }>,
   ): string {
     if (properties.length === 0) {
@@ -496,10 +503,15 @@ Do not include any text outside the JSON object.
           : '—';
         const occ = p.occupancyMax ? `, ${p.occupancyMax} pax max` : '';
         const min = p.rentalMinMonths ? `, min ${p.rentalMinMonths}mo` : '';
-        return `- ${p.code} (${p.type.replace(/_/g, ' ')}) in ${p.area ?? '—'}: rent ${price}, deposit ${deposit}${occ}${min} — ${p.name}\n  Link: ${marketplaceBase}/p/${p.code}`;
+        const facts = formatDetailsForCatalog(p.details);
+        return `- ${p.code} (${p.type.replace(/_/g, ' ')}) in ${p.area ?? '—'}: rent ${price}, deposit ${deposit}${occ}${min} — ${p.name}${facts}\n  Link: ${marketplaceBase}/p/${p.code}`;
       })
       .join('\n');
-    return `## Property Catalog (currently available)\n\n${rows}`;
+    return `## Property Catalog (currently available)\n\n${rows}\n\n` +
+      `The "Facts" line above each property comes directly from the field agent's interview with the owner. ` +
+      `When a lead asks about occupancy, nationalities, bathroom (private/shared), cleaning service or other living conditions, ` +
+      `ANSWER FROM THESE FACTS. Do NOT say "let me check and get back to you" if the answer is in the Facts line. ` +
+      `If the relevant fact is missing, say so honestly and offer to find out — then escalate.`;
   }
 
   private formatFewShot(
@@ -718,4 +730,25 @@ Respond with the JSON object only, no surrounding text.`;
 function formatMsg(m: { direction: string; body: string | null }): string {
   const tag = m.direction === 'inbound' ? '[LEAD]' : '[US]';
   return `${tag} ${m.body ?? '(non-text)'}`;
+}
+
+/** Render the PropertyDetailQuestion answers from Property.details as a
+ *  one-line "Facts" suffix appended to a catalog row. Keeps the prompt
+ *  compact (we render at most ~6 facts per property) and only emits the
+ *  line when at least one answer is present. */
+function formatDetailsForCatalog(details: unknown): string {
+  if (!details || typeof details !== 'object') return '';
+  const entries = Object.entries(details as Record<string, unknown>)
+    .filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0))
+    .slice(0, 8);
+  if (entries.length === 0) return '';
+  const formatted = entries
+    .map(([k, v]) => {
+      const key = k.replace(/_/g, ' ');
+      if (Array.isArray(v)) return `${key}=${(v as unknown[]).join('/')}`;
+      if (typeof v === 'boolean') return `${key}=${v ? 'yes' : 'no'}`;
+      return `${key}=${String(v)}`;
+    })
+    .join('; ');
+  return `\n  Facts (from owner): ${formatted}`;
 }

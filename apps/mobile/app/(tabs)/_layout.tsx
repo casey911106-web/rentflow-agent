@@ -9,10 +9,11 @@ import { registerPushTokenIfPossible } from '../../lib/push';
 // — anything unknown lands on /today so taps never throw "unmatched route".
 function mapPushLinkToMobile(link: string, isAdmin: boolean): string {
   if (link.startsWith('/viewing/') || link.startsWith('/inbox/')
-      || link.startsWith('/availability/')) return link;
+      || link.startsWith('/availability/')
+      || link.startsWith('/property-details/')) return link;
   if (link === '/tasks' || link === '/today' || link === '/inbox'
       || link === '/performance' || link === '/notifications'
-      || link === '/availability') return link;
+      || link === '/availability' || link === '/property-details') return link;
   if (link.startsWith('/leads/')) return isAdmin ? '/inbox' : '/today';
   if (link.startsWith('/posting/')) return '/tasks';
   return '/today';
@@ -106,6 +107,13 @@ export default function TabsLayout() {
         options={{
           title: 'Disponibilidad',
           tabBarIcon: ({ color, size }) => <Ionicons name="checkmark-done-outline" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="property-details"
+        options={{
+          title: 'Datos',
+          tabBarIcon: ({ color, size }) => <Ionicons name="reader-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen

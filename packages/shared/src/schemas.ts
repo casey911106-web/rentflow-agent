@@ -12,6 +12,7 @@ export const propertyTypeSchema = z.enum([
   'bed_space',
   'shared_room',
   'partition',
+  'standard_room',
   'master_room',
   'studio',
   'one_bedroom',

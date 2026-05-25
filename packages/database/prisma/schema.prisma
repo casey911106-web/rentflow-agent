@@ -40,6 +40,7 @@ enum PropertyType {
   bed_space
   shared_room
   partition
+  standard_room
   master_room
   studio
   one_bedroom
@@ -228,6 +229,33 @@ enum NotificationKind {
   action_required
 }
 
+/// Type of a configurable property-detail question. Drives the input widget
+/// rendered in the mobile form and the validation applied to answers.
+///   text      → free-text (e.g. nationalities)
+///   number    → integer (e.g. occupants count)
+///   boolean   → yes/no toggle (e.g. has daily cleaning)
+///   enum      → single-choice from `options[]` (e.g. bathroom: private | shared)
+///   multi_enum→ multi-choice from `options[]` (e.g. services included)
+enum PropertyDetailQuestionType {
+  text
+  number
+  boolean
+  enum
+  multi_enum
+}
+
+/// Lifecycle of a PropertyDetailsCheck task assigned to a field agent.
+///   pending  → assigned, agent has not submitted yet
+///   filled   → agent submitted answers (terminal)
+///   expired  → TTL elapsed without submission (terminal; cron re-assigns)
+///   cancelled→ property no longer needs details (terminal; e.g. archived)
+enum PropertyDetailsCheckStatus {
+  pending
+  filled
+  expired
+  cancelled
+}
+
 enum AutomationTriggerType {
   schedule
   event
@@ -282,6 +310,8 @@ model Company {
   aiPromptTemplates       AIPromptTemplate[]
   aiAgentSessions         AIAgentSession[]
   ownerAvailabilityChecks OwnerAvailabilityCheck[]
+  propertyDetailQuestions PropertyDetailQuestion[]
+  propertyDetailsChecks   PropertyDetailsCheck[]
   leadMessages            LeadMessage[]
   leadSources             LeadSource[]
   fieldAgents             FieldAgent[]
@@ -325,6 +355,7 @@ model User {
   postPlacements      PostPlacement[]  @relation("PostPlacementPublisher")
   postAssignments     PostAssignment[] @relation("PostAssignmentAssignee")
   availabilityChecks  OwnerAvailabilityCheck[] @relation("AvailabilityCheckAssignee")
+  detailsChecks       PropertyDetailsCheck[]   @relation("PropertyDetailsCheckAssignee")
   commissionSplits    CommissionSplit[] @relation("CommissionSplitRecipient")
   auditLogs           AuditLog[]
   fileUploads         FileUpload[]
@@ -536,6 +567,16 @@ model Property {
   occupancyMax            Int?
   rentalMinMonths         Int?
   amenities               Json?
+  /// Free-form answers to PropertyDetailQuestion catalogue, keyed by the
+  /// question's `key` (e.g. { "occupants_count": 3, "bathroom": "shared",
+  /// "nationalities": "Pakistani, Indian", "daily_cleaning": false }). Used
+  /// by the WhatsApp AI agent so it can answer guest FAQs without escalating
+  /// to a human. Filled by field agents via the mobile form.
+  details                 Json?
+  /// Stamped when EVERY active required question has a non-empty answer in
+  /// `details`. The PropertyDetailsCheck scheduler skips properties whose
+  /// stamp is fresher than the staleness window.
+  detailsCompletedAt      DateTime?
   viewingAccess           String?
   moveInDate              DateTime?
   rentedUntil             DateTime?
@@ -570,6 +611,7 @@ model Property {
   viewings                Viewing[]
   deals                   Deal[]
   ownerAvailabilityChecks OwnerAvailabilityCheck[]
+  detailsChecks           PropertyDetailsCheck[]
   scheduleTokens          ViewingScheduleToken[]
 
   @@unique([companyId, code])
@@ -644,6 +686,64 @@ model PropertyScoreSnapshot {
   createdAt  DateTime  @default(now())
 
   @@index([propertyId, kind, createdAt])
+}
+
+/// Admin-configurable question that the field agent must answer about a
+/// property. Lives outside the Property model so ops can add new basics
+/// without a schema migration (e.g. "Allows pets?", "WiFi password type?").
+/// Mobile renders the form dynamically from the active rows.
+///
+/// `key` is the stable identifier stored as the JSON key on Property.details.
+/// `position` controls display order in the mobile form.
+/// `options` is required for type=enum/multi_enum (string[] of allowed values).
+model PropertyDetailQuestion {
+  id           String                     @id @default(uuid())
+  companyId    String
+  company      Company                    @relation(fields: [companyId], references: [id])
+  key          String
+  label        String
+  helperText   String?
+  type         PropertyDetailQuestionType
+  options      Json?
+  isRequired   Boolean                    @default(true)
+  isActive     Boolean                    @default(true)
+  position     Int                        @default(0)
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+  deletedAt    DateTime?
+
+  @@unique([companyId, key])
+  @@index([companyId, isActive, position])
+}
+
+/// Task assigned to a field agent: gather the basic property facts (the
+/// `details` JSON on Property) by asking the owner. Created when a property
+/// is published via fast-posting and details are missing/stale. Re-assigned
+/// by the scheduler every cycle until filled, so the publisher who just
+/// posted gets first crack but the task rotates if they don't act.
+///
+/// Lifecycle mirrors OwnerAvailabilityCheck: pending → filled (terminal) or
+/// expired (cron reassigns).
+model PropertyDetailsCheck {
+  id             String                     @id @default(uuid())
+  companyId      String
+  company        Company                    @relation(fields: [companyId], references: [id])
+  propertyId     String
+  property       Property                   @relation(fields: [propertyId], references: [id])
+  status         PropertyDetailsCheckStatus @default(pending)
+  assigneeUserId String?
+  assignee       User?                      @relation("PropertyDetailsCheckAssignee", fields: [assigneeUserId], references: [id])
+  assignedAt     DateTime                   @default(now())
+  expiresAt      DateTime
+  fulfilledAt    DateTime?
+  /// Snapshot of the answers submitted in this attempt (for audit/rollback).
+  /// The current authoritative answers live on Property.details.
+  submittedAnswers Json?
+
+  @@index([companyId, status])
+  @@index([propertyId, status])
+  @@index([assigneeUserId, status])
+  @@index([status, expiresAt])
 }
 
 // =============================================================================

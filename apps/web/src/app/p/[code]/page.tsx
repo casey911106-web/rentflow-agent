@@ -56,6 +56,7 @@ const TYPE_LABEL: Record<string, string> = {
   three_bedroom: '3 Bedroom',
   villa: 'Villa',
   master_room: 'Master room',
+  standard_room: 'Standard room',
   shared_room: 'Shared room',
 };
 

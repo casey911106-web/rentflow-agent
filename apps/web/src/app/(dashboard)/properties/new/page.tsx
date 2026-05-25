@@ -10,6 +10,7 @@ const PROPERTY_TYPES: Array<{ value: string; label: string }> = [
   { value: 'bed_space',     label: 'Bed space' },
   { value: 'shared_room',   label: 'Shared room' },
   { value: 'partition',     label: 'Partition' },
+  { value: 'standard_room', label: 'Standard room' },
   { value: 'master_room',   label: 'Master room' },
   { value: 'studio',        label: 'Studio' },
   { value: 'one_bedroom',   label: '1-bedroom' },

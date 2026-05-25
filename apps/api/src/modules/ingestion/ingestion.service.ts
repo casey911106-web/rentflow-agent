@@ -408,7 +408,7 @@ Return ONLY a JSON object matching this shape (use null for missing values):
   "priceAed": number | null,
   "depositAed": number | null,
   "area": string | null,        // Dubai neighbourhood: "Dubai Marina", "JBR", "Downtown", "JVC", "Palm Jumeirah", "Business Bay", etc.
-  "type": "studio" | "one_bedroom" | "two_bedroom" | "three_bedroom" | "villa" | "master_room" | "shared_room" | "partition" | "bed_space" | null,
+  "type": "studio" | "one_bedroom" | "two_bedroom" | "three_bedroom" | "villa" | "master_room" | "standard_room" | "shared_room" | "partition" | "bed_space" | null,
   "occupancyMax": number | null,
   "description": string | null,
   "amenities": string[] | null,
@@ -422,6 +422,7 @@ Rules:
 - "9.5k" or "9,500 AED" → 9500. "9k" or "9000 AED" → 9000.
 - "2BR", "2 hab", "two-bedroom" → "two_bedroom". "1BR", "1 hab" → "one_bedroom".
 - "studio" remains "studio". "Villa" → "villa".
+- "standard room", "regular room", "normal room", "habitación estándar", "cuarto regular" → "standard_room" (a normal bedroom in a shared apartment, not the master).
 - "sleeps 6", "para 6 personas", "6 people" → occupancyMax: 6.
 - Description: a short clean sentence (≤ 200 chars), no "AED" or numbers in it.
 - Amenities: short array like ["sea view","pool","parking"]. Empty/null if none mentioned.
@@ -465,6 +466,7 @@ Output the JSON only, no preface.`;
     | 'three_bedroom'
     | 'villa'
     | 'master_room'
+    | 'standard_room'
     | 'shared_room'
     | 'partition'
     | 'bed_space'
@@ -476,6 +478,7 @@ Output the JSON only, no preface.`;
       'three_bedroom',
       'villa',
       'master_room',
+      'standard_room',
       'shared_room',
       'partition',
       'bed_space',
@@ -494,6 +497,7 @@ Output the JSON only, no preface.`;
       three_bedroom: '3BR',
       villa: 'Villa',
       master_room: 'Master room',
+      standard_room: 'Standard room',
       shared_room: 'Shared room',
       partition: 'Partition',
       bed_space: 'Bed space',

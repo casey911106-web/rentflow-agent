@@ -108,6 +108,20 @@ export class PushService {
     });
   }
 
+  /** Property-details task assigned to a field agent — capture FAQ answers
+   *  from the owner so the WhatsApp AI can reply to guests without escalating. */
+  async notifyPropertyDetailsAssigned(
+    userId: string,
+    info: { propertyCode: string; propertyName: string },
+  ): Promise<void> {
+    return this.send(userId, {
+      title: '📝 Datos faltantes',
+      body: `${info.propertyCode} — ${info.propertyName}. Pregunta al dueño los datos básicos (ocupantes, baño, limpieza).`,
+      data: { kind: 'property_details_assigned', link: '/property-details' },
+      channelId: 'availability',
+    });
+  }
+
   /** A lead replied — operator(s) on the company should see it fast. */
   async notifyLeadReplied(
     userIds: string[],

@@ -16,6 +16,7 @@ export type PropertyTypeKey =
   | 'three_bedroom'
   | 'villa'
   | 'master_room'
+  | 'standard_room'
   | 'shared_room'
   | 'partition'
   | 'bed_space'
@@ -43,6 +44,7 @@ export function commissionAed(propertyType: string): number {
     case 'villa':
       return 3000;
     case 'master_room':
+    case 'standard_room':
     case 'shared_room':
     case 'partition':
     case 'bed_space':

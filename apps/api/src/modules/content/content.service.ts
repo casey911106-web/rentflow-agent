@@ -795,6 +795,7 @@ function humanType(t: string): string | null {
     case 'three_bedroom': return '3 bedrooms';
     case 'villa': return 'villa';
     case 'master_room': return 'master bedroom';
+    case 'standard_room': return 'standard bedroom';
     case 'shared_room': return 'shared room';
     case 'partition': return 'partition';
     case 'bed_space': return 'bed space';
