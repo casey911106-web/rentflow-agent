@@ -101,8 +101,8 @@ export class PushService {
     info: { propertyCode: string; propertyName: string },
   ): Promise<void> {
     return this.send(userId, {
-      title: '🏠 Confirma disponibilidad',
-      body: `${info.propertyCode} — ${info.propertyName}. Pregunta al dueño. 24h.`,
+      title: '🏠 Confirm availability',
+      body: `${info.propertyCode} — ${info.propertyName}. Ask the owner. 24h.`,
       data: { kind: 'availability_check_assigned', link: '/availability' },
       channelId: 'availability',
     });
@@ -115,8 +115,8 @@ export class PushService {
     info: { propertyCode: string; propertyName: string },
   ): Promise<void> {
     return this.send(userId, {
-      title: '📝 Datos faltantes',
-      body: `${info.propertyCode} — ${info.propertyName}. Pregunta al dueño los datos básicos (ocupantes, baño, limpieza).`,
+      title: '📝 Missing details',
+      body: `${info.propertyCode} — ${info.propertyName}. Ask the owner the basics (occupants, bathroom, cleaning).`,
       data: { kind: 'property_details_assigned', link: '/property-details' },
       channelId: 'availability',
     });

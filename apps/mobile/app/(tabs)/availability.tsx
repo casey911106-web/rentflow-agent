@@ -56,8 +56,8 @@ export default function AvailabilityScreen() {
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: '#F8FAFC' }}>
       <Text style={{ marginBottom: 12, color: '#64748B', fontSize: 12 }}>
-        Llama al dueño y confirma si la propiedad sigue disponible. Si no, marca y se pausa
-        en la rotación automáticamente.
+        Call the owner and confirm the property is still available. If not, mark it and the
+        posting rotation pauses automatically.
       </Text>
 
       {error ? (
@@ -72,7 +72,7 @@ export default function AvailabilityScreen() {
         }
         ListEmptyComponent={
           <View style={{ alignItems: 'center', marginTop: 64 }}>
-            <Text style={{ color: '#64748B' }}>Sin checks pendientes 👌</Text>
+            <Text style={{ color: '#64748B' }}>No pending checks 👌</Text>
           </View>
         }
         renderItem={({ item }) => {
@@ -101,7 +101,7 @@ export default function AvailabilityScreen() {
               ) : null}
               <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
                 <Text style={{ color: '#94A3B8', fontSize: 12 }}>
-                  Dueño: {item.owner.fullName ?? item.owner.phoneE164}
+                  Owner: {item.owner.fullName ?? item.owner.phoneE164}
                 </Text>
               </View>
             </Pressable>

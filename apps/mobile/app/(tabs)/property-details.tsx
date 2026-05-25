@@ -64,8 +64,8 @@ export default function PropertyDetailsTasksScreen() {
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: '#F8FAFC' }}>
       <Text style={{ marginBottom: 12, color: '#64748B', fontSize: 12 }}>
-        Pregunta al dueño los datos básicos (ocupantes, baño, limpieza). Las respuestas
-        las usa la IA para contestar a los huéspedes sin tener que reenviarle a él.
+        Ask the owner the basics (occupants, bathroom, cleaning). The AI uses these answers
+        to reply to guests without escalating back to the owner.
       </Text>
 
       {error ? (
@@ -80,7 +80,7 @@ export default function PropertyDetailsTasksScreen() {
         }
         ListEmptyComponent={
           <View style={{ alignItems: 'center', marginTop: 64 }}>
-            <Text style={{ color: '#64748B' }}>Sin datos pendientes 👌</Text>
+            <Text style={{ color: '#64748B' }}>No pending details 👌</Text>
           </View>
         }
         renderItem={({ item }) => {
@@ -110,7 +110,7 @@ export default function PropertyDetailsTasksScreen() {
               {item.property.owner ? (
                 <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
                   <Text style={{ color: '#94A3B8', fontSize: 12 }}>
-                    Dueño: {item.property.owner.fullName ?? item.property.owner.phoneE164}
+                    Owner: {item.property.owner.fullName ?? item.property.owner.phoneE164}
                   </Text>
                 </View>
               ) : null}

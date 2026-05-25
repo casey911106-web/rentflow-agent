@@ -105,14 +105,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="availability"
         options={{
-          title: 'Disponibilidad',
+          title: 'Availability',
           tabBarIcon: ({ color, size }) => <Ionicons name="checkmark-done-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="property-details"
         options={{
-          title: 'Datos',
+          title: 'Details',
           tabBarIcon: ({ color, size }) => <Ionicons name="reader-outline" color={color} size={size} />,
         }}
       />

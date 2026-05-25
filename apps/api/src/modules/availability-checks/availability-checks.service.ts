@@ -5,7 +5,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class AvailabilityChecksService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** A field agent's open queue: checks assigned to them, still within TTL. */
+  /** A field agent's open queue: checks assigned to them, still within TTL.
+   *  Includes the first 3 photos so the agent can save them to camera roll
+   *  and forward to the owner via WhatsApp — owners often don't recognise
+   *  a property by code/name alone. */
   async listMyAssignments(companyId: string, userId: string) {
     return this.prisma.ownerAvailabilityCheck.findMany({
       where: {
@@ -16,7 +19,24 @@ export class AvailabilityChecksService {
       },
       orderBy: { assignedAt: 'asc' },
       include: {
-        property: { select: { id: true, code: true, name: true, area: true, priceAed: true } },
+        property: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            area: true,
+            priceAed: true,
+            media: {
+              where: { file: { mimeType: { startsWith: 'image/' } } },
+              orderBy: { position: 'asc' },
+              take: 3,
+              select: {
+                id: true,
+                file: { select: { id: true, mimeType: true } },
+              },
+            },
+          },
+        },
         owner: { select: { id: true, fullName: true, phoneE164: true } },
       },
     });

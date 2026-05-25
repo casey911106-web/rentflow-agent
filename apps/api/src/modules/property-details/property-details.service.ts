@@ -117,7 +117,9 @@ export class PropertyDetailsService {
   // Field-agent task queue (mobile)
   // -------------------------------------------------------------------------
 
-  /** Pending tasks for this agent, oldest first. */
+  /** Pending tasks for this agent, oldest first. Includes the first 3 photos
+   *  so the agent can forward them to the owner via WhatsApp — owners often
+   *  don't recognise a property by code/name alone. */
   async listMyTasks(companyId: string, userId: string) {
     return this.prisma.propertyDetailsCheck.findMany({
       where: {
@@ -137,6 +139,15 @@ export class PropertyDetailsService {
             priceAed: true,
             type: true,
             details: true,
+            media: {
+              where: { file: { mimeType: { startsWith: 'image/' } } },
+              orderBy: { position: 'asc' },
+              take: 3,
+              select: {
+                id: true,
+                file: { select: { id: true, mimeType: true } },
+              },
+            },
             owner: { select: { id: true, fullName: true, phoneE164: true } },
           },
         },
@@ -272,8 +283,8 @@ export class PropertyDetailsService {
           companyId,
           userId: assigneeUserId,
           kind: 'action_required',
-          title: `Datos faltantes — ${property.code}`,
-          body: `Pregunta al dueño los datos básicos de ${property.code} (${property.name}). 24h.`,
+          title: `Missing details — ${property.code}`,
+          body: `Ask the owner the basics for ${property.code} (${property.name}). 24h.`,
           link: '/property-details',
         },
       });

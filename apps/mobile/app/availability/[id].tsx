@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -10,12 +11,28 @@ import {
   View,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
 import { api } from '../../lib/api';
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://rentflow-api.rentalho.com';
+
+interface PropertyPhoto {
+  id: string;
+  file: { id: string; mimeType: string };
+}
 
 interface CheckDetail {
   id: string;
   expiresAt: string;
-  property: { id: string; code: string; name: string; area: string | null; priceAed: string | null };
+  property: {
+    id: string;
+    code: string;
+    name: string;
+    area: string | null;
+    priceAed: string | null;
+    media: PropertyPhoto[];
+  };
   owner: { id: string; fullName: string | null; phoneE164: string };
 }
 
@@ -29,6 +46,7 @@ export default function AvailabilityDetailScreen() {
   const [showUnavail, setShowUnavail] = useState(false);
   const [availableFromDate, setAvailableFromDate] = useState('');
   const [notes, setNotes] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -36,7 +54,7 @@ export default function AvailabilityDetailScreen() {
       .then((items) => {
         if (!active) return;
         const found = items.find((c) => c.id === id);
-        if (!found) setError('Este check ya no está asignado a ti o expiró.');
+        if (!found) setError('This check is no longer assigned to you or has expired.');
         else setCheck(found);
       })
       .catch((err) => active && setError((err as Error).message))
@@ -49,7 +67,7 @@ export default function AvailabilityDetailScreen() {
     setWorking(true);
     try {
       await api(`/availability-checks/${id}/available`, { method: 'POST' });
-      Alert.alert('Confirmado', 'Marcada como disponible. Siguiente check en 7 días.');
+      Alert.alert('Confirmed', 'Marked as available. Next check in 7 days.');
       router.back();
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
@@ -70,8 +88,8 @@ export default function AvailabilityDetailScreen() {
         }),
       });
       Alert.alert(
-        'Pausada',
-        'Marcada como no disponible. La rotación de publicaciones se pausó para esta propiedad.',
+        'Paused',
+        'Marked as not available. Posting rotation has been paused for this property.',
       );
       router.back();
     } catch (err) {
@@ -79,6 +97,44 @@ export default function AvailabilityDetailScreen() {
     } finally {
       setWorking(false);
     }
+  }
+
+  async function savePhotos() {
+    if (!check || downloading) return;
+    const photos = check.property.media ?? [];
+    if (photos.length === 0) {
+      Alert.alert('No photos', 'This property has no media to share.');
+      return;
+    }
+    const perm = await MediaLibrary.requestPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission needed', 'Allow Photos access so the property images can be saved to your camera roll.');
+      return;
+    }
+    setDownloading(true);
+    let saved = 0;
+    for (let i = 0; i < photos.length; i++) {
+      const m = photos[i]!;
+      try {
+        const url = `${API_BASE}/public/files/${m.file.id}`;
+        const ext = m.file.mimeType.includes('png') ? 'png' : m.file.mimeType.includes('webp') ? 'webp' : 'jpg';
+        const localPath = `${FileSystem.cacheDirectory}${check.property.code}-${i + 1}.${ext}`;
+        const result = await FileSystem.downloadAsync(url, localPath);
+        if (result.status === 200) {
+          await MediaLibrary.saveToLibraryAsync(result.uri);
+          saved++;
+        }
+      } catch {
+        // skip
+      }
+    }
+    setDownloading(false);
+    Alert.alert(
+      saved > 0 ? 'Saved' : 'Failed',
+      saved > 0
+        ? `${saved} photo${saved > 1 ? 's' : ''} saved to your camera roll. Open WhatsApp and attach them to the owner chat.`
+        : 'Could not save photos. Try again.',
+    );
   }
 
   if (loading) {
@@ -92,20 +148,22 @@ export default function AvailabilityDetailScreen() {
   if (error || !check) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <Text style={{ color: '#DC2626', textAlign: 'center' }}>{error ?? 'Check no encontrado'}</Text>
+        <Text style={{ color: '#DC2626', textAlign: 'center' }}>{error ?? 'Check not found'}</Text>
         <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
-          <Text style={{ color: '#00A7A5', fontWeight: '600' }}>Volver</Text>
+          <Text style={{ color: '#00A7A5', fontWeight: '600' }}>Back</Text>
         </Pressable>
       </View>
     );
   }
 
+  const photos = check.property.media ?? [];
+
   return (
     <ScrollView style={{ flex: 1, backgroundColor: '#F8FAFC' }} contentContainerStyle={{ padding: 16 }}>
-      <Stack.Screen options={{ title: 'Confirmar disponibilidad' }} />
+      <Stack.Screen options={{ title: 'Confirm availability' }} />
 
       <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 16 }}>
-        <Text style={{ fontSize: 13, color: '#64748B' }}>Propiedad</Text>
+        <Text style={{ fontSize: 13, color: '#64748B' }}>Property</Text>
         <Text style={{ fontSize: 18, fontWeight: '700', color: '#061D3F', marginTop: 2 }}>
           {check.property.code}
         </Text>
@@ -120,10 +178,52 @@ export default function AvailabilityDetailScreen() {
         ) : null}
       </View>
 
+      {photos.length > 0 ? (
+        <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 16 }}>
+          <Text style={{ fontSize: 13, color: '#64748B', marginBottom: 4 }}>
+            Photos to send the owner
+          </Text>
+          <Text style={{ fontSize: 11, color: '#94A3B8', marginBottom: 10 }}>
+            Owners often don&apos;t recognise a property by code. Save these and attach them in WhatsApp so they know which unit you mean.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+            {photos.map((p) => (
+              <Image
+                key={p.id}
+                source={{ uri: `${API_BASE}/public/files/${p.file.id}` }}
+                style={{ flex: 1, height: 90, borderRadius: 6, backgroundColor: '#E2E8F0' }}
+                resizeMode="cover"
+              />
+            ))}
+          </View>
+          <Pressable
+            onPress={savePhotos}
+            disabled={downloading}
+            style={{
+              backgroundColor: '#0E7490',
+              padding: 12,
+              borderRadius: 8,
+              alignItems: 'center',
+              opacity: downloading ? 0.5 : 1,
+            }}
+          >
+            <Text style={{ color: 'white', fontWeight: '700' }}>
+              {downloading ? 'Saving…' : `Save ${photos.length} photo${photos.length > 1 ? 's' : ''} to camera roll`}
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={{ backgroundColor: '#FEF3C7', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+          <Text style={{ color: '#92400E', fontSize: 12 }}>
+            ⚠ No photos on file. The owner may not recognise this property — flag to ops if so.
+          </Text>
+        </View>
+      )}
+
       <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 16 }}>
-        <Text style={{ fontSize: 13, color: '#64748B' }}>Contactar al dueño</Text>
+        <Text style={{ fontSize: 13, color: '#64748B' }}>Contact the owner</Text>
         <Text style={{ fontSize: 16, fontWeight: '600', color: '#061D3F', marginTop: 2 }}>
-          {check.owner.fullName ?? '(sin nombre)'}
+          {check.owner.fullName ?? '(no name)'}
         </Text>
         <Text style={{ color: '#475569', marginTop: 2 }}>{check.owner.phoneE164}</Text>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
@@ -137,7 +237,7 @@ export default function AvailabilityDetailScreen() {
               alignItems: 'center',
             }}
           >
-            <Text style={{ color: 'white', fontWeight: '600' }}>Llamar</Text>
+            <Text style={{ color: 'white', fontWeight: '600' }}>Call</Text>
           </Pressable>
           <Pressable
             onPress={() => Linking.openURL(`https://wa.me/${check.owner.phoneE164.replace('+', '')}`)}
@@ -168,7 +268,7 @@ export default function AvailabilityDetailScreen() {
             }}
           >
             <Text style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>
-              ✅ Sigue disponible
+              ✅ Still available
             </Text>
           </Pressable>
           <Pressable
@@ -184,22 +284,21 @@ export default function AvailabilityDetailScreen() {
             }}
           >
             <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 16 }}>
-              ❌ No disponible
+              ❌ Not available
             </Text>
           </Pressable>
         </View>
       ) : (
         <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12 }}>
           <Text style={{ fontSize: 14, fontWeight: '600', color: '#061D3F', marginBottom: 8 }}>
-            Marcar como no disponible
+            Mark as not available
           </Text>
           <Text style={{ color: '#64748B', fontSize: 12, marginBottom: 12 }}>
-            La rotación de publicaciones se pausa inmediatamente. Si el dueño dijo cuándo vuelve
-            a estar libre, anótalo abajo (es opcional).
+            Posting rotation pauses immediately. If the owner said when it&apos;ll be free again, add it below (optional).
           </Text>
 
           <Text style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
-            Vuelve a estar libre (YYYY-MM-DD)
+            Free again on (YYYY-MM-DD)
           </Text>
           <TextInput
             value={availableFromDate}
@@ -215,11 +314,11 @@ export default function AvailabilityDetailScreen() {
             }}
           />
 
-          <Text style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>Notas (opcional)</Text>
+          <Text style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>Notes (optional)</Text>
           <TextInput
             value={notes}
             onChangeText={setNotes}
-            placeholder="Ej: ya alquilada, owner no contesta, etc."
+            placeholder="e.g. already rented, owner not responding, etc."
             placeholderTextColor="#94A3B8"
             multiline
             style={{
@@ -245,7 +344,7 @@ export default function AvailabilityDetailScreen() {
                 borderColor: '#CBD5E1',
               }}
             >
-              <Text style={{ color: '#475569', fontWeight: '600' }}>Atrás</Text>
+              <Text style={{ color: '#475569', fontWeight: '600' }}>Back</Text>
             </Pressable>
             <Pressable
               onPress={markUnavailable}
@@ -260,7 +359,7 @@ export default function AvailabilityDetailScreen() {
               }}
             >
               <Text style={{ color: 'white', fontWeight: '700' }}>
-                {working ? 'Guardando…' : 'Confirmar no disponible'}
+                {working ? 'Saving…' : 'Confirm not available'}
               </Text>
             </Pressable>
           </View>

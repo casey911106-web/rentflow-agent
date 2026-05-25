@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -10,7 +11,11 @@ import {
   View,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
 import { api } from '../../lib/api';
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://rentflow-api.rentalho.com';
 
 interface Question {
   id: string;
@@ -21,6 +26,11 @@ interface Question {
   options: string[] | null;
   isRequired: boolean;
   position: number;
+}
+
+interface PropertyPhoto {
+  id: string;
+  file: { id: string; mimeType: string };
 }
 
 interface Task {
@@ -34,6 +44,7 @@ interface Task {
     priceAed: string | null;
     type: string;
     details: Record<string, unknown> | null;
+    media: PropertyPhoto[];
     owner: { id: string; fullName: string | null; phoneE164: string } | null;
   };
 }
@@ -47,6 +58,7 @@ export default function PropertyDetailsFormScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -58,7 +70,7 @@ export default function PropertyDetailsFormScreen() {
         if (!active) return;
         const found = tasks.find((t) => t.id === id);
         if (!found) {
-          setError('Esta tarea ya no está asignada a ti o expiró.');
+          setError('This task is no longer assigned to you or has expired.');
         } else {
           setTask(found);
           setAnswers({ ...((found.property.details as Record<string, unknown>) ?? {}) });
@@ -83,8 +95,8 @@ export default function PropertyDetailsFormScreen() {
     if (submitting) return;
     if (missingRequired.length > 0) {
       Alert.alert(
-        'Faltan datos',
-        `Completa: ${missingRequired.slice(0, 3).join(', ')}${missingRequired.length > 3 ? '…' : ''}`,
+        'Missing answers',
+        `Please fill: ${missingRequired.slice(0, 3).join(', ')}${missingRequired.length > 3 ? '…' : ''}`,
       );
       return;
     }
@@ -94,13 +106,51 @@ export default function PropertyDetailsFormScreen() {
         method: 'POST',
         body: JSON.stringify({ answers }),
       });
-      Alert.alert('Guardado', 'Los datos quedaron registrados. La IA ya puede responder a los huéspedes.');
+      Alert.alert('Saved', 'Details recorded. The AI can now answer guest questions about this property.');
       router.back();
     } catch (err) {
       Alert.alert('Error', (err as Error).message);
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function savePhotos() {
+    if (!task || downloading) return;
+    const photos = task.property.media ?? [];
+    if (photos.length === 0) {
+      Alert.alert('No photos', 'This property has no media to share.');
+      return;
+    }
+    const perm = await MediaLibrary.requestPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission needed', 'Allow Photos access so the property images can be saved to your camera roll.');
+      return;
+    }
+    setDownloading(true);
+    let saved = 0;
+    for (let i = 0; i < photos.length; i++) {
+      const m = photos[i]!;
+      try {
+        const url = `${API_BASE}/public/files/${m.file.id}`;
+        const ext = m.file.mimeType.includes('png') ? 'png' : m.file.mimeType.includes('webp') ? 'webp' : 'jpg';
+        const localPath = `${FileSystem.cacheDirectory}${task.property.code}-${i + 1}.${ext}`;
+        const result = await FileSystem.downloadAsync(url, localPath);
+        if (result.status === 200) {
+          await MediaLibrary.saveToLibraryAsync(result.uri);
+          saved++;
+        }
+      } catch {
+        // skip
+      }
+    }
+    setDownloading(false);
+    Alert.alert(
+      saved > 0 ? 'Saved' : 'Failed',
+      saved > 0
+        ? `${saved} photo${saved > 1 ? 's' : ''} saved to your camera roll. Open WhatsApp and attach them so the owner knows which unit.`
+        : 'Could not save photos. Try again.',
+    );
   }
 
   if (loading) {
@@ -114,22 +164,23 @@ export default function PropertyDetailsFormScreen() {
   if (error || !task) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-        <Text style={{ color: '#DC2626', textAlign: 'center' }}>{error ?? 'Tarea no encontrada'}</Text>
+        <Text style={{ color: '#DC2626', textAlign: 'center' }}>{error ?? 'Task not found'}</Text>
         <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
-          <Text style={{ color: '#00A7A5', fontWeight: '600' }}>Volver</Text>
+          <Text style={{ color: '#00A7A5', fontWeight: '600' }}>Back</Text>
         </Pressable>
       </View>
     );
   }
 
   const owner = task.property.owner;
+  const photos = task.property.media ?? [];
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: '#F8FAFC' }} contentContainerStyle={{ padding: 16 }}>
-      <Stack.Screen options={{ title: 'Datos de la casa' }} />
+      <Stack.Screen options={{ title: 'Property details' }} />
 
       <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 16 }}>
-        <Text style={{ fontSize: 13, color: '#64748B' }}>Propiedad</Text>
+        <Text style={{ fontSize: 13, color: '#64748B' }}>Property</Text>
         <Text style={{ fontSize: 18, fontWeight: '700', color: '#061D3F', marginTop: 2 }}>
           {task.property.code}
         </Text>
@@ -139,11 +190,53 @@ export default function PropertyDetailsFormScreen() {
         ) : null}
       </View>
 
+      {photos.length > 0 ? (
+        <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 16 }}>
+          <Text style={{ fontSize: 13, color: '#64748B', marginBottom: 4 }}>
+            Photos to send the owner
+          </Text>
+          <Text style={{ fontSize: 11, color: '#94A3B8', marginBottom: 10 }}>
+            Owners often don&apos;t recognise a property by code. Save these and attach them in WhatsApp so they know which unit you mean.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+            {photos.map((p) => (
+              <Image
+                key={p.id}
+                source={{ uri: `${API_BASE}/public/files/${p.file.id}` }}
+                style={{ flex: 1, height: 90, borderRadius: 6, backgroundColor: '#E2E8F0' }}
+                resizeMode="cover"
+              />
+            ))}
+          </View>
+          <Pressable
+            onPress={savePhotos}
+            disabled={downloading}
+            style={{
+              backgroundColor: '#0E7490',
+              padding: 12,
+              borderRadius: 8,
+              alignItems: 'center',
+              opacity: downloading ? 0.5 : 1,
+            }}
+          >
+            <Text style={{ color: 'white', fontWeight: '700' }}>
+              {downloading ? 'Saving…' : `Save ${photos.length} photo${photos.length > 1 ? 's' : ''} to camera roll`}
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={{ backgroundColor: '#FEF3C7', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+          <Text style={{ color: '#92400E', fontSize: 12 }}>
+            ⚠ No photos on file. The owner may not recognise this property — flag to ops if so.
+          </Text>
+        </View>
+      )}
+
       {owner ? (
         <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 16 }}>
-          <Text style={{ fontSize: 13, color: '#64748B' }}>Contactar al dueño</Text>
+          <Text style={{ fontSize: 13, color: '#64748B' }}>Contact the owner</Text>
           <Text style={{ fontSize: 16, fontWeight: '600', color: '#061D3F', marginTop: 2 }}>
-            {owner.fullName ?? '(sin nombre)'}
+            {owner.fullName ?? '(no name)'}
           </Text>
           <Text style={{ color: '#475569', marginTop: 2 }}>{owner.phoneE164}</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
@@ -157,7 +250,7 @@ export default function PropertyDetailsFormScreen() {
                 alignItems: 'center',
               }}
             >
-              <Text style={{ color: 'white', fontWeight: '600' }}>Llamar</Text>
+              <Text style={{ color: 'white', fontWeight: '600' }}>Call</Text>
             </Pressable>
             <Pressable
               onPress={() => Linking.openURL(`https://wa.me/${owner.phoneE164.replace('+', '')}`)}
@@ -177,10 +270,10 @@ export default function PropertyDetailsFormScreen() {
 
       <View style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 16 }}>
         <Text style={{ fontSize: 14, fontWeight: '700', color: '#061D3F', marginBottom: 4 }}>
-          Preguntas para el dueño
+          Questions for the owner
         </Text>
         <Text style={{ fontSize: 12, color: '#64748B', marginBottom: 16 }}>
-          Llena lo que sepas. Los campos con * son obligatorios para cerrar la tarea.
+          Fill in what you know. Fields marked * are required to close the task.
         </Text>
 
         {questions.map((q) => (
@@ -205,7 +298,7 @@ export default function PropertyDetailsFormScreen() {
         }}
       >
         <Text style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>
-          {submitting ? 'Guardando…' : 'Guardar y cerrar tarea'}
+          {submitting ? 'Saving…' : 'Save and close task'}
         </Text>
       </Pressable>
       <View style={{ height: 32 }} />
@@ -272,7 +365,7 @@ function FieldInput({
       return (
         <View style={{ flexDirection: 'row', gap: 8 }}>
           {[
-            { label: 'Sí', val: true },
+            { label: 'Yes', val: true },
             { label: 'No', val: false },
           ].map((opt) => {
             const selected = value === opt.val;
