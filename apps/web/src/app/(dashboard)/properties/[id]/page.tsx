@@ -1009,8 +1009,12 @@ function FieldAgentsPanel({
   assignedTo: { id: string; fullName: string } | null;
   onSaved: () => void;
 }) {
+  // queryKey is distinct from ['field-agents'] (used by /viewings/[id] +
+  // /leads/[id] which hit a different endpoint with a different shape). A
+  // shared key here served FieldAgent[] from cache and crashed on
+  // `a.roles.includes` because FieldAgent has no `roles` field.
   const { data: agents } = useQuery({
-    queryKey: ['field-agents'],
+    queryKey: ['users-field-agents'],
     queryFn: () =>
       api<Array<{ id: string; fullName: string; email: string; roles: string[] }>>(
         '/users?role=field_agent',
@@ -1023,7 +1027,9 @@ function FieldAgentsPanel({
     onSuccess: () => onSaved(),
   });
 
-  const options = (agents ?? []).filter((a) => a.roles.includes('field_agent'));
+  const options = (agents ?? []).filter(
+    (a) => Array.isArray(a.roles) && a.roles.includes('field_agent'),
+  );
 
   return (
     <div className="rounded-md border border-gray-light bg-white p-5 shadow-card">
