@@ -20,8 +20,10 @@ export class ViewingsController {
     @Query('status') status?: ViewingStatus,
     @Query('agentId') agentId?: string,
     @Query('propertyId') propertyId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    return this.viewings.list(user, { date, status, agentId, propertyId });
+    return this.viewings.list(user, { date, status, agentId, propertyId, from, to });
   }
 
   @Get(':id')
