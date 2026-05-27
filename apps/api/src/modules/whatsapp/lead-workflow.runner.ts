@@ -124,6 +124,46 @@ export class LeadWorkflowRunner {
       return;
     }
 
+    // Conversation-level dedup. Two guards, in order:
+    //
+    // 1) If a PENDING suggestion already exists on this conversation (not
+    //    yet approved/edited+sent), do NOT call Claude again — re-notify
+    //    the operator about the existing one so they can act on it. Saves
+    //    tokens on every inbound while a draft is waiting on review.
+    //
+    // 2) If the most recent suggestion on this conversation was CANCELLED
+    //    and the cancel happened at-or-after the latest inbound, respect
+    //    the operator's "do not reply" decision — stay silent until the
+    //    lead writes again (i.e. a newer inbound arrives so its createdAt
+    //    becomes > decidedAt and unblocks this branch).
+    const latestSuggestion = await this.prisma.suggestion.findFirst({
+      where: { conversationId: lead.whatsappConversation.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true, decidedAt: true },
+    });
+
+    if (latestSuggestion?.status === 'pending') {
+      this.logger.log(
+        `Lead=${lead.id} already has pending suggestion=${latestSuggestion.id}; re-notifying operator instead of generating.`,
+      );
+      await this.notifier.notifyNewSuggestion(latestSuggestion.id).catch((err) =>
+        this.logger.warn(`re-notify failed for ${latestSuggestion.id}: ${(err as Error).message}`),
+      );
+      return;
+    }
+
+    if (
+      latestSuggestion?.status === 'cancelled' &&
+      latestSuggestion.decidedAt &&
+      inbound?.createdAt &&
+      latestSuggestion.decidedAt >= inbound.createdAt
+    ) {
+      this.logger.log(
+        `Lead=${lead.id} last suggestion=${latestSuggestion.id} cancelled; staying silent until lead writes again.`,
+      );
+      return;
+    }
+
     this.logger.log(`Generating suggestion for lead=${lead.id} state=${state}`);
 
     const result = await this.engine.generate({
