@@ -26,7 +26,14 @@ export class ViewingsService {
 
   async list(
     user: JwtPayload,
-    filter: { date?: string; status?: ViewingStatus; agentId?: string; propertyId?: string } = {},
+    filter: {
+      date?: string;
+      status?: ViewingStatus;
+      agentId?: string;
+      propertyId?: string;
+      from?: string;
+      to?: string;
+    } = {},
   ) {
     const scope = await this.resolveAgentScope(user);
     if (scope === undefined) return [];
@@ -38,7 +45,12 @@ export class ViewingsService {
     // param is honored only when the caller has admin/ops privileges.
     if (scope) where.fieldAgentId = scope;
     else if (filter.agentId) where.fieldAgentId = filter.agentId;
-    if (filter.date) {
+    if (filter.from || filter.to) {
+      const start = filter.from ? new Date(filter.from) : new Date('1970-01-01');
+      const end = filter.to ? new Date(filter.to) : new Date('2999-12-31');
+      end.setUTCHours(23, 59, 59, 999);
+      where.scheduledAt = { gte: start, lte: end };
+    } else if (filter.date) {
       const start = new Date(filter.date);
       const end = new Date(start);
       end.setUTCHours(23, 59, 59, 999);
@@ -52,7 +64,7 @@ export class ViewingsService {
         fieldAgent: { include: { user: { select: { fullName: true } } } },
       },
       orderBy: { scheduledAt: 'asc' },
-      take: 200,
+      take: 500,
     });
   }
 

@@ -1,67 +1,107 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import Link from 'next/link';
-import { StatusPill } from '@rentflow/ui';
 import { api } from '@/lib/api';
-
-interface ViewingRow {
-  id: string;
-  status: string;
-  scheduledAt: string;
-  durationMinutes: number;
-  property: { code: string; name: string };
-  lead: { fullName: string | null; phoneE164: string };
-  fieldAgent: { user: { fullName: string } } | null;
-}
+import { CalendarHeader } from './_components/header';
+import { CalendarGrid, type ViewingRow } from './_components/calendar-grid';
+import { DayDrawer } from './_components/day-drawer';
+import {
+  dubaiNow,
+  monthStart,
+  monthEnd,
+  toISODate,
+  sameDubaiDay,
+} from './_lib/date-utils';
 
 export default function ViewingsPage() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['viewings'],
-    queryFn: () => api<ViewingRow[]>('/viewings'),
+  const today = dubaiNow();
+  const [year, setYear] = useState(today.getUTCFullYear());
+  const [monthIndex, setMonthIndex] = useState(today.getUTCMonth());
+  const [view, setView] = useState<'month' | 'week'>('month');
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+
+  const range = useMemo(() => {
+    if (view === 'week') {
+      const base = today;
+      const dow = (base.getUTCDay() + 6) % 7;
+      const start = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate() - dow));
+      const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+      return { from: toISODate(start), to: toISODate(end) };
+    }
+    return {
+      from: toISODate(monthStart(year, monthIndex)),
+      to: toISODate(monthEnd(year, monthIndex)),
+    };
+  }, [view, year, monthIndex, today]);
+
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ['viewings', range.from, range.to],
+    queryFn: () => api<ViewingRow[]>(`/viewings?from=${range.from}&to=${range.to}`),
   });
+
+  const drawerRows = selectedDay
+    ? rows.filter((r) => sameDubaiDay(new Date(r.scheduledAt), selectedDay))
+    : [];
+
+  function goPrev() {
+    if (monthIndex === 0) {
+      setYear(year - 1);
+      setMonthIndex(11);
+    } else {
+      setMonthIndex(monthIndex - 1);
+    }
+  }
+  function goNext() {
+    if (monthIndex === 11) {
+      setYear(year + 1);
+      setMonthIndex(0);
+    } else {
+      setMonthIndex(monthIndex + 1);
+    }
+  }
+  function goToday() {
+    setYear(today.getUTCFullYear());
+    setMonthIndex(today.getUTCMonth());
+  }
 
   return (
     <div>
       <header className="mb-6">
         <h1>Viewings</h1>
-        <p className="mt-1 text-sm text-gray-medium">Scheduled viewings across all field agents.</p>
+        <p className="mt-1 text-sm text-gray-medium">
+          Scheduled viewings across all field agents.
+        </p>
       </header>
 
-      <div className="overflow-x-auto rounded-md border border-gray-light bg-white shadow-card">
-        <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="bg-offwhite text-xs uppercase tracking-wide text-gray-medium">
-            <tr>
-              <th className="px-4 py-3">When</th>
-              <th className="px-4 py-3">Property</th>
-              <th className="px-4 py-3">Lead</th>
-              <th className="px-4 py-3">Agent</th>
-              <th className="px-4 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-medium">Loading…</td></tr>
-            ) : !data?.length ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-medium">No viewings scheduled.</td></tr>
-            ) : (
-              data.map((v) => (
-                <tr key={v.id} className="border-t border-gray-light hover:bg-offwhite">
-                  <td className="px-4 py-3 text-gray-dark">{new Date(v.scheduledAt).toLocaleString()}</td>
-                  <td className="px-4 py-3 font-semibold">
-                    <Link href={`/viewings/${v.id}`} className="text-navy hover:underline">
-                      {v.property.code} — {v.property.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-gray-dark">{v.lead.fullName ?? v.lead.phoneE164}</td>
-                  <td className="px-4 py-3 text-gray-dark">{v.fieldAgent?.user?.fullName ?? '— unassigned —'}</td>
-                  <td className="px-4 py-3"><StatusPill status={v.status} /></td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <CalendarHeader
+        year={year}
+        monthIndex={monthIndex}
+        view={view}
+        onPrev={goPrev}
+        onNext={goNext}
+        onToday={goToday}
+        onViewChange={setView}
+      />
+
+      {isLoading ? (
+        <div className="rounded-md border border-gray-light bg-white p-8 text-center text-sm text-gray-medium shadow-card">
+          Loading…
+        </div>
+      ) : (
+        <CalendarGrid
+          year={year}
+          monthIndex={monthIndex}
+          rows={rows}
+          onDayClick={setSelectedDay}
+        />
+      )}
+
+      <DayDrawer
+        date={selectedDay}
+        rows={drawerRows}
+        onClose={() => setSelectedDay(null)}
+      />
     </div>
   );
 }
