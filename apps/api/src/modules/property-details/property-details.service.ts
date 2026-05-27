@@ -398,6 +398,16 @@ export class PropertyDetailsService {
 
   /** Per-question type validation. Strips unknown keys, coerces basic types,
    *  throws on enum mismatch. */
+  /** Public wrapper for cross-module reuse (owner-sweeps): fetch active
+   *  questions for the company and run the same validation `submit()` runs. */
+  async validateAnswersForCompany(
+    companyId: string,
+    answers: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const questions = await this.listActiveQuestions(companyId);
+    return this.validateAnswers(questions, answers);
+  }
+
   private validateAnswers(
     questions: PropertyDetailQuestion[],
     answers: Record<string, unknown>,

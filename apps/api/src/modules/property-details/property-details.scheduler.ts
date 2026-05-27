@@ -27,6 +27,12 @@ export class PropertyDetailsScheduler {
 
   @Cron(CronExpression.EVERY_HOUR, { name: 'property-details-sweep' })
   async tick(): Promise<void> {
+    // Replaced by OwnerSweepsScheduler — kept available behind a flag for
+    // rollback. Default off in prod.
+    if (process.env.PROPERTY_DETAILS_LEGACY_SWEEP_ENABLED !== 'true') {
+      this.logger.debug('Legacy property-details sweep disabled by env flag');
+      return;
+    }
     if (this.running) return;
     this.running = true;
     try {

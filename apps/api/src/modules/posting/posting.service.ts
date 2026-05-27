@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { buildClickToChatUrl } from '@rentflow/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ContentService } from '../content/content.service';
+import { OwnerSweepsService } from '../owner-sweeps/owner-sweeps.service';
 import { PropertyDetailsService } from '../property-details/property-details.service';
 
 /** Minimum readiness score before a Fast Posting package can be generated.
@@ -20,6 +21,7 @@ export class PostingService {
     private readonly prisma: PrismaService,
     private readonly content: ContentService,
     private readonly propertyDetails: PropertyDetailsService,
+    private readonly ownerSweeps: OwnerSweepsService,
   ) {}
 
   /** List the company's automated channels (Telegram, IG, FB pages, etc). */
@@ -467,15 +469,14 @@ export class PostingService {
       },
     });
 
-    // First publisher to post a property listing also gets the property-details
-    // task — they're already in contact with the owner so it's the cheapest
-    // moment to ask the basic FAQs. The scheduler will rotate the task if
-    // they don't fill it within TTL.
+    // First publisher to post a property listing seeds (or appends to) the
+    // owner sweep for that owner — same conversation now covers availability
+    // + FAQ for all of the owner's stale properties.
     if (pkg.propertyId && pkg.kind === 'property_listing') {
-      this.propertyDetails
-        .ensureCheck(companyId, pkg.propertyId, userId)
+      this.ownerSweeps
+        .ensureOpenSweepIncludes(companyId, pkg.propertyId, userId)
         .catch((err) =>
-          this.logger.warn(`ensureCheck failed for property ${pkg.propertyId}: ${(err as Error).message}`),
+          this.logger.warn(`ensureOpenSweepIncludes failed for property ${pkg.propertyId}: ${(err as Error).message}`),
         );
     }
 

@@ -310,6 +310,7 @@ model Company {
   aiPromptTemplates       AIPromptTemplate[]
   aiAgentSessions         AIAgentSession[]
   ownerAvailabilityChecks OwnerAvailabilityCheck[]
+  ownerSweeps             OwnerSweep[]
   propertyDetailQuestions PropertyDetailQuestion[]
   propertyDetailsChecks   PropertyDetailsCheck[]
   leadMessages            LeadMessage[]
@@ -348,23 +349,24 @@ model User {
   updatedAt      DateTime   @updatedAt
   deletedAt      DateTime?
 
-  fieldAgent          FieldAgent?
-  notifications       Notification[]
-  publishedPackages   PostPackage[]    @relation("PublishedByUser")
-  approvedPackages    PostPackage[]    @relation("ApprovedByUser")
-  postPlacements      PostPlacement[]  @relation("PostPlacementPublisher")
-  postAssignments     PostAssignment[] @relation("PostAssignmentAssignee")
-  availabilityChecks  OwnerAvailabilityCheck[] @relation("AvailabilityCheckAssignee")
-  detailsChecks       PropertyDetailsCheck[]   @relation("PropertyDetailsCheckAssignee")
-  commissionSplits    CommissionSplit[] @relation("CommissionSplitRecipient")
-  auditLogs           AuditLog[]
-  fileUploads         FileUpload[]
-  decidedSuggestions  Suggestion[]     @relation("SuggestionDecidedBy")
-  submittedProperties Property[]       @relation("PropertySubmittedBy")
-  assignedProperties  Property[]       @relation("PropertyAssignedAgent")
-  sourcedProperties   Property[]       @relation("PropertySourcedBy")
-  partnerDeals        Deal[]           @relation("DealPartner")
-  scheduledChannelPosts ScheduledChannelPost[] @relation("ScheduledChannelPostCreator")
+  fieldAgent            FieldAgent?
+  notifications         Notification[]
+  publishedPackages     PostPackage[]            @relation("PublishedByUser")
+  approvedPackages      PostPackage[]            @relation("ApprovedByUser")
+  postPlacements        PostPlacement[]          @relation("PostPlacementPublisher")
+  postAssignments       PostAssignment[]         @relation("PostAssignmentAssignee")
+  availabilityChecks    OwnerAvailabilityCheck[] @relation("AvailabilityCheckAssignee")
+  detailsChecks         PropertyDetailsCheck[]   @relation("PropertyDetailsCheckAssignee")
+  ownerSweeps           OwnerSweep[]             @relation("OwnerSweepAssignee")
+  commissionSplits      CommissionSplit[]        @relation("CommissionSplitRecipient")
+  auditLogs             AuditLog[]
+  fileUploads           FileUpload[]
+  decidedSuggestions    Suggestion[]             @relation("SuggestionDecidedBy")
+  submittedProperties   Property[]               @relation("PropertySubmittedBy")
+  assignedProperties    Property[]               @relation("PropertyAssignedAgent")
+  sourcedProperties     Property[]               @relation("PropertySourcedBy")
+  partnerDeals          Deal[]                   @relation("DealPartner")
+  scheduledChannelPosts ScheduledChannelPost[]   @relation("ScheduledChannelPostCreator")
 
   @@unique([companyId, email])
   @@index([companyId])
@@ -482,6 +484,7 @@ model Owner {
   properties         Property[]
   ownerMessages      OwnerMessage[]
   availabilityChecks OwnerAvailabilityCheck[]
+  ownerSweeps        OwnerSweep[]
   scoreSnapshots     OwnerScoreSnapshot[]
 
   @@unique([companyId, phoneE164])
@@ -620,6 +623,7 @@ model Property {
   deals                   Deal[]
   ownerAvailabilityChecks OwnerAvailabilityCheck[]
   detailsChecks           PropertyDetailsCheck[]
+  ownerSweepItems         OwnerSweepItem[]
   scheduleTokens          ViewingScheduleToken[]
 
   @@unique([companyId, code])
@@ -627,6 +631,7 @@ model Property {
   @@index([ownerId])
   @@index([submittedByUserId])
   @@index([assignedFieldAgentId])
+  @@index([sourcedByFieldAgentId])
 }
 
 model PropertyMedia {
@@ -705,20 +710,20 @@ model PropertyScoreSnapshot {
 /// `position` controls display order in the mobile form.
 /// `options` is required for type=enum/multi_enum (string[] of allowed values).
 model PropertyDetailQuestion {
-  id           String                     @id @default(uuid())
-  companyId    String
-  company      Company                    @relation(fields: [companyId], references: [id])
-  key          String
-  label        String
-  helperText   String?
-  type         PropertyDetailQuestionType
-  options      Json?
-  isRequired   Boolean                    @default(true)
-  isActive     Boolean                    @default(true)
-  position     Int                        @default(0)
-  createdAt    DateTime                   @default(now())
-  updatedAt    DateTime                   @updatedAt
-  deletedAt    DateTime?
+  id         String                     @id @default(uuid())
+  companyId  String
+  company    Company                    @relation(fields: [companyId], references: [id])
+  key        String
+  label      String
+  helperText String?
+  type       PropertyDetailQuestionType
+  options    Json?
+  isRequired Boolean                    @default(true)
+  isActive   Boolean                    @default(true)
+  position   Int                        @default(0)
+  createdAt  DateTime                   @default(now())
+  updatedAt  DateTime                   @updatedAt
+  deletedAt  DateTime?
 
   @@unique([companyId, key])
   @@index([companyId, isActive, position])
@@ -733,17 +738,17 @@ model PropertyDetailQuestion {
 /// Lifecycle mirrors OwnerAvailabilityCheck: pending → filled (terminal) or
 /// expired (cron reassigns).
 model PropertyDetailsCheck {
-  id             String                     @id @default(uuid())
-  companyId      String
-  company        Company                    @relation(fields: [companyId], references: [id])
-  propertyId     String
-  property       Property                   @relation(fields: [propertyId], references: [id])
-  status         PropertyDetailsCheckStatus @default(pending)
-  assigneeUserId String?
-  assignee       User?                      @relation("PropertyDetailsCheckAssignee", fields: [assigneeUserId], references: [id])
-  assignedAt     DateTime                   @default(now())
-  expiresAt      DateTime
-  fulfilledAt    DateTime?
+  id               String                     @id @default(uuid())
+  companyId        String
+  company          Company                    @relation(fields: [companyId], references: [id])
+  propertyId       String
+  property         Property                   @relation(fields: [propertyId], references: [id])
+  status           PropertyDetailsCheckStatus @default(pending)
+  assigneeUserId   String?
+  assignee         User?                      @relation("PropertyDetailsCheckAssignee", fields: [assigneeUserId], references: [id])
+  assignedAt       DateTime                   @default(now())
+  expiresAt        DateTime
+  fulfilledAt      DateTime?
   /// Snapshot of the answers submitted in this attempt (for audit/rollback).
   /// The current authoritative answers live on Property.details.
   submittedAnswers Json?
@@ -1020,7 +1025,7 @@ model PostChannel {
   automated  Boolean         @default(false)
   createdAt  DateTime        @default(now())
 
-  postPackages PostPackage[]
+  postPackages   PostPackage[]
   scheduledPosts ScheduledChannelPost[]
 
   @@unique([companyId, platform, name])
@@ -1078,10 +1083,10 @@ model PostPackage {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  trackingLink TrackingLink?
-  leads        Lead[]
-  placements   PostPlacement[]
-  assignments  PostAssignment[]
+  trackingLink   TrackingLink?
+  leads          Lead[]
+  placements     PostPlacement[]
+  assignments    PostAssignment[]
   scheduledPosts ScheduledChannelPost[]
 
   @@index([companyId, status])
@@ -1142,23 +1147,23 @@ model PostPlacement {
   confirmedAt DateTime?
 
   /// True when posted by an automated adapter (bot) vs. a human field agent.
-  automated      Boolean   @default(false)
+  automated       Boolean   @default(false)
   /// IG carousel variant index used for this placement (0..3) — rotates per
   /// publish so consecutive auto-posts for the same package don't look the
   /// same. Null on non-IG placements.
   carouselVariant Int?
   /// Caption/body that was actually published — kept here so we can audit
   /// what the lead saw and re-post the exact text if something needs editing.
-  caption        String?
+  caption         String?
   /// Provider-side post ID — e.g. Telegram message_id, IG media_id. Lets us
   /// edit/delete the published post or fetch its metrics later.
-  externalPostId String?
+  externalPostId  String?
   /// Short unique slug stamped onto the marketplace tracking link
   /// (`/p/<code>?s=<slug>`). Each click increments `clicks` and the
   /// resulting lead is attributed to this placement.
-  trackingSlug   String?   @unique
-  clicks         Int       @default(0)
-  lastClickAt    DateTime?
+  trackingSlug    String?   @unique
+  clicks          Int       @default(0)
+  lastClickAt     DateTime?
 
   publishedAt DateTime  @default(now())
   removedAt   DateTime?
@@ -1559,4 +1564,64 @@ model TrainingExample {
 
   @@index([companyId, enabled])
   @@index([companyId, state, enabled])
+}
+
+// =============================================================================
+// Owner sweeps — per-owner conversation that replaces the per-property
+// availability + FAQ flows. The field agent drives the call offline; the
+// app is a checklist with a public-link share button per property.
+// =============================================================================
+
+enum OwnerSweepStatus {
+  pending
+  in_progress
+  closed
+}
+
+enum OwnerSweepItemAvailability {
+  available
+  rented
+  price_changed
+  no_answer
+}
+
+model OwnerSweep {
+  id             String           @id @default(uuid())
+  companyId      String
+  company        Company          @relation(fields: [companyId], references: [id])
+  ownerId        String
+  owner          Owner            @relation(fields: [ownerId], references: [id])
+  status         OwnerSweepStatus @default(pending)
+  assigneeUserId String?
+  assignee       User?            @relation("OwnerSweepAssignee", fields: [assigneeUserId], references: [id])
+  assignedAt     DateTime?
+  startedAt      DateTime?
+  closedAt       DateTime?
+  closedBy       String?
+  createdAt      DateTime         @default(now())
+
+  items OwnerSweepItem[]
+
+  @@index([companyId, ownerId, status])
+  @@index([companyId, assigneeUserId, status])
+}
+
+model OwnerSweepItem {
+  id             String                      @id @default(uuid())
+  sweepId        String
+  sweep          OwnerSweep                  @relation(fields: [sweepId], references: [id], onDelete: Cascade)
+  propertyId     String
+  property       Property                    @relation(fields: [propertyId], references: [id])
+  availability   OwnerSweepItemAvailability?
+  rentedUntil    DateTime?
+  newPriceAed    Decimal?                    @db.Decimal(12, 2)
+  faqAnswers     Json?
+  faqAllRequired Boolean                     @default(false)
+  sharedAt       DateTime?
+  shareLinkUsed  String?
+  notes          String?
+  resolvedAt     DateTime?
+
+  @@unique([sweepId, propertyId])
+  @@index([propertyId])
 }

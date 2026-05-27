@@ -27,6 +27,7 @@ import { PublicModule } from './modules/public/public.module';
 import { PlacementsModule } from './modules/placements/placements.module';
 import { AvailabilityChecksModule } from './modules/availability-checks/availability-checks.module';
 import { PropertyDetailsModule } from './modules/property-details/property-details.module';
+import { OwnerSweepsModule } from './modules/owner-sweeps/owner-sweeps.module';
 import { BonusPoolModule } from './modules/bonus-pool/bonus-pool.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { CostsModule } from './modules/costs/costs.module';
@@ -68,6 +69,7 @@ import { RolesGuard } from './modules/auth/roles.guard';
     PlacementsModule,
     AvailabilityChecksModule,
     PropertyDetailsModule,
+    OwnerSweepsModule,
     BonusPoolModule,
     SchedulerModule,
     CostsModule,
