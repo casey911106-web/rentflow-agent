@@ -42,6 +42,7 @@ const NAV: NavItem[] = [
   { href: '/analytics',    label: 'Analytics',    icon: <Home size={18} />,           roles: ADMIN_OPS },
   { href: '/properties',   label: 'Properties',   icon: <Building2 size={18} />,      roles: ALL_ROLES },
   { href: '/owners',       label: 'Owners',       icon: <ClipboardCheck size={18} />, roles: ADMIN_OPS },
+  { href: '/owner-sweeps', label: 'Owner sweeps', icon: <ClipboardCheck size={18} />, roles: ALL_ROLES },
   { href: '/leads',        label: 'Leads',        icon: <Users size={18} />,          roles: ADMIN_OPS },
   { href: '/suggestions',  label: 'Suggestions',  icon: <Sparkles size={18} />,       roles: ADMIN_OPS, badge: <PendingSuggestionsBadge /> },
   { href: '/whatsapp',     label: 'Inbox',        icon: <MessageCircle size={18} />,  roles: ADMIN_OPS },
