@@ -7,13 +7,16 @@ import { registerPushTokenIfPossible } from '../../lib/push';
 
 // Backend sends web-style links in push payloads. Translate to mobile routes
 // — anything unknown lands on /today so taps never throw "unmatched route".
+// Old /availability/* and /property-details/* deep links redirect to the new
+// /owner-sweeps tab for one release while operators migrate.
 function mapPushLinkToMobile(link: string, isAdmin: boolean): string {
   if (link.startsWith('/viewing/') || link.startsWith('/inbox/')
-      || link.startsWith('/availability/')
-      || link.startsWith('/property-details/')) return link;
+      || link.startsWith('/owner-sweeps/')) return link;
+  if (link.startsWith('/availability/') || link.startsWith('/property-details/')) return '/owner-sweeps';
   if (link === '/tasks' || link === '/today' || link === '/inbox'
       || link === '/performance' || link === '/notifications'
-      || link === '/availability' || link === '/property-details') return link;
+      || link === '/owner-sweeps') return link;
+  if (link === '/availability' || link === '/property-details') return '/owner-sweeps';
   if (link.startsWith('/leads/')) return isAdmin ? '/inbox' : '/today';
   if (link.startsWith('/posting/')) return '/tasks';
   return '/today';
@@ -103,18 +106,19 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="availability"
+        name="owner-sweeps"
         options={{
-          title: 'Availability',
-          tabBarIcon: ({ color, size }) => <Ionicons name="checkmark-done-outline" color={color} size={size} />,
+          title: 'Owners',
+          tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
+        name="availability"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="property-details"
-        options={{
-          title: 'Details',
-          tabBarIcon: ({ color, size }) => <Ionicons name="reader-outline" color={color} size={size} />,
-        }}
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="performance"
