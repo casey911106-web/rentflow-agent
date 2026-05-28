@@ -56,6 +56,53 @@ interface BonusStandings {
   topSourcer: { userId: string; fullName: string | null; sourcedCount: number } | null;
 }
 
+type SummaryPeriod = 'day' | 'week' | 'month';
+
+interface MetricDelta {
+  current: number;
+  previous: number;
+  deltaPct: number | null;
+}
+
+interface SummaryData {
+  period: SummaryPeriod;
+  range: { from: string; to: string };
+  previousRange: { from: string; to: string };
+  metrics: {
+    leads: MetricDelta;
+    postsPublished: MetricDelta;
+    tasksAssigned: MetricDelta;
+    tasksCompleted: MetricDelta;
+    viewingsCompleted: MetricDelta;
+    dealsWon: MetricDelta;
+  };
+}
+
+interface PublishersData {
+  period: SummaryPeriod;
+  publishers: Array<{
+    user: { id: string; fullName: string; email: string } | null;
+    placements: number;
+    clicks: number;
+    attributedLeads: number;
+    assignedTotal: number;
+    assignedFulfilled: number;
+    completionRate: number;
+  }>;
+}
+
+const PERIOD_LABELS: Record<SummaryPeriod, string> = {
+  day: 'Hoy',
+  week: 'Esta semana',
+  month: 'Este mes',
+};
+
+const PERIOD_PREV_LABELS: Record<SummaryPeriod, string> = {
+  day: 'ayer',
+  week: 'semana anterior',
+  month: 'mes anterior',
+};
+
 /** Current UTC year/month — used as the default selection. */
 function currentYearMonth(): { year: number; month: number } {
   const now = new Date();
@@ -93,6 +140,18 @@ export default function AnalyticsPage() {
   const months = recentMonths(13); // current + 12 prior
 
   const monthParams = `?year=${year}&month=${month}`;
+
+  const [period, setPeriod] = useState<SummaryPeriod>('day');
+
+  const { data: summary } = useQuery({
+    queryKey: ['analytics', 'summary', period],
+    queryFn: () => api<SummaryData>(`/analytics/summary?period=${period}`),
+  });
+
+  const { data: publishers } = useQuery({
+    queryKey: ['analytics', 'publishers', period],
+    queryFn: () => api<PublishersData>(`/analytics/publishers?period=${period}`),
+  });
 
   const { data: funnel } = useQuery({
     queryKey: ['analytics', 'funnel', year, month],
@@ -187,6 +246,72 @@ export default function AnalyticsPage() {
         Mostrando <strong className="text-navy-deep">{monthLabel(year, month)}</strong>
         {isCurrentMonth ? ' (mes en curso)' : ''}.
       </p>
+
+      {/* SECTION 0 — Period summary with comparison (default Hoy) */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-medium">
+            Resumen · {PERIOD_LABELS[period]}
+          </h2>
+          <div className="flex rounded-md border border-gray-light bg-white p-0.5 text-sm">
+            {(['day', 'week', 'month'] as SummaryPeriod[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPeriod(p)}
+                className={`rounded px-3 py-1 text-xs font-semibold ${
+                  period === p ? 'bg-teal text-white' : 'text-gray-dark'
+                }`}
+              >
+                {p === 'day' ? 'Hoy' : p === 'week' ? 'Semana' : 'Mes'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <SummaryCard label="Leads" metric={summary?.metrics.leads} prevLabel={PERIOD_PREV_LABELS[period]} />
+          <SummaryCard label="Posts publicados" metric={summary?.metrics.postsPublished} prevLabel={PERIOD_PREV_LABELS[period]} />
+          <SummaryCard label="Tareas asignadas" metric={summary?.metrics.tasksAssigned} prevLabel={PERIOD_PREV_LABELS[period]} />
+          <SummaryCard label="Tareas completadas" metric={summary?.metrics.tasksCompleted} prevLabel={PERIOD_PREV_LABELS[period]} />
+          <SummaryCard label="Viewings completados" metric={summary?.metrics.viewingsCompleted} prevLabel={PERIOD_PREV_LABELS[period]} />
+          <SummaryCard label="Deals ganados" metric={summary?.metrics.dealsWon} prevLabel={PERIOD_PREV_LABELS[period]} />
+        </div>
+
+        {/* Per-publisher breakdown for the selected period */}
+        <div className="overflow-x-auto rounded-md border border-gray-light bg-white shadow-card">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead className="bg-offwhite text-xs uppercase tracking-wide text-gray-medium">
+              <tr>
+                <th className="px-4 py-2">Publisher</th>
+                <th className="px-4 py-2">Posts</th>
+                <th className="px-4 py-2">Asignadas</th>
+                <th className="px-4 py-2">Completadas</th>
+                <th className="px-4 py-2">Completion</th>
+                <th className="px-4 py-2">Clicks</th>
+                <th className="px-4 py-2">Leads</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(publishers?.publishers ?? []).map((p) => (
+                <tr key={p.user?.id ?? Math.random()} className="border-t border-gray-light">
+                  <td className="px-4 py-2 font-semibold text-navy-deep">
+                    {p.user?.fullName ?? '— desconocido —'}
+                  </td>
+                  <td className="px-4 py-2 text-gray-dark">{p.placements}</td>
+                  <td className="px-4 py-2 text-gray-dark">{p.assignedTotal}</td>
+                  <td className="px-4 py-2 text-gray-dark">{p.assignedFulfilled}</td>
+                  <td className="px-4 py-2 text-gray-dark">{Math.round(p.completionRate * 100)}%</td>
+                  <td className="px-4 py-2 text-gray-dark">{p.clicks}</td>
+                  <td className="px-4 py-2 text-gray-dark">{p.attributedLeads}</td>
+                </tr>
+              ))}
+              {publishers && publishers.publishers.length === 0 ? (
+                <tr><td className="px-4 py-6 text-center text-gray-medium" colSpan={7}>Sin actividad de publishers en este período.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {/* SECTION 1 — Overview KPIs */}
       <section className="space-y-3">
@@ -426,6 +551,50 @@ export default function AnalyticsPage() {
           Clicks are server-counted hits on each placement&apos;s unique tracking link. Leads are visitors who came through one of those clicks and started a WhatsApp conversation.
         </p>
       </section>
+    </div>
+  );
+}
+
+/** A KPI card with the current-period value and a comparison arrow vs the
+ *  same elapsed window in the prior period. */
+function SummaryCard({
+  label,
+  metric,
+  prevLabel,
+}: {
+  label: string;
+  metric: MetricDelta | undefined;
+  prevLabel: string;
+}) {
+  const current = metric?.current ?? 0;
+  const deltaPct = metric?.deltaPct ?? null;
+
+  let arrow = '→';
+  let color = 'text-gray-medium';
+  if (deltaPct !== null) {
+    if (deltaPct > 0) {
+      arrow = '▲';
+      color = 'text-emerald-600';
+    } else if (deltaPct < 0) {
+      arrow = '▼';
+      color = 'text-red-600';
+    }
+  }
+
+  const deltaText =
+    deltaPct === null ? '—' : `${deltaPct > 0 ? '+' : ''}${deltaPct.toFixed(0)}%`;
+
+  return (
+    <div className="rounded-lg border border-gray-light bg-white p-4 shadow-card">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-medium">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-navy-deep">{current.toLocaleString()}</p>
+      <p className={`mt-1 flex items-center gap-1 text-xs font-semibold ${color}`}>
+        <span>{arrow}</span>
+        <span>{deltaText}</span>
+        <span className="font-normal text-gray-medium">
+          vs {prevLabel} ({metric?.previous ?? 0})
+        </span>
+      </p>
     </div>
   );
 }
