@@ -86,9 +86,9 @@ newgrp docker
 ### Clone the repo on the VPS
 
 ```bash
-sudo mkdir -p /srv/rentflow
-sudo chown $USER:$USER /srv/rentflow
-cd /srv/rentflow
+sudo mkdir -p /home/rentalho/apps/rentflow-agent
+sudo chown $USER:$USER /home/rentalho/apps/rentflow-agent
+cd /home/rentalho/apps/rentflow-agent
 git clone git@github.com:rentalho-corp/rentflow-agent.git .
 ```
 
@@ -223,7 +223,7 @@ Anything that was pasted in chat needs rotating:
 
 ```bash
 ssh user@vps
-cd /srv/rentflow
+cd /home/rentalho/apps/rentflow-agent
 ./bin/deploy.sh
 ```
 
