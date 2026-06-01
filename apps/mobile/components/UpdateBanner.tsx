@@ -1,19 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
 
+type State = 'idle' | 'checking' | 'downloading' | 'ready' | 'uptodate' | 'error';
+
 /**
- * Subtle update indicator. Shows a tiny teal pill near the top of the screen
- * once an OTA update has been downloaded and is waiting to be applied. The
- * user can tap to expand + reload. Hidden otherwise — never blocks the UI.
+ * Update indicator + manual pull.
  *
- * The actual download happens in app/_layout.tsx on every launch; this
- * component just surfaces the "ready to apply" state and the reload action.
+ * Two surfaces in one component:
+ *  (1) Auto-pill: when a background poll has finished downloading an update,
+ *      a teal pill appears top-center. Tap → expand → Reiniciar.
+ *  (2) Hidden tap-dot: a near-invisible 8×8 dot in the top-right corner.
+ *      Tap = "check + fetch + reload now" without waiting for the 10-min
+ *      poll or relaunching the app. Used to push an EAS update to the
+ *      device on demand. Visible feedback only while actively working.
+ *
+ * Background polling: shortly after mount, then every 10 min.
  */
 export function UpdateBanner() {
-  const [ready, setReady] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [reloading, setReloading] = useState(false);
+  const [state, setState] = useState<State>('idle');
 
   useEffect(() => {
     if (__DEV__) return; // expo-updates is a no-op in dev builds.
@@ -23,19 +28,17 @@ export function UpdateBanner() {
 
     async function poll() {
       try {
-        const state = await Updates.checkForUpdateAsync();
+        const result = await Updates.checkForUpdateAsync();
         if (!active) return;
-        if (state.isAvailable) {
+        if (result.isAvailable) {
           await Updates.fetchUpdateAsync();
-          if (active) setReady(true);
+          if (active) setState('ready');
         }
       } catch {
         // ignore
       }
     }
 
-    // Check shortly after mount (covers updates fetched during the first
-    // launch by the root layout) and then every 10 minutes while open.
     const initial = setTimeout(poll, 4000);
     timer = setInterval(poll, 10 * 60 * 1000);
 
@@ -46,15 +49,38 @@ export function UpdateBanner() {
     };
   }, []);
 
-  if (!ready) return null;
+  async function manualPull() {
+    if (state === 'checking' || state === 'downloading') return;
+    if (__DEV__) {
+      // In dev expo-updates is a no-op; show a brief "uptodate" so the
+      // tap target is testable without a real EAS channel.
+      setState('uptodate');
+      setTimeout(() => setState('idle'), 1500);
+      return;
+    }
+    try {
+      setState('checking');
+      const result = await Updates.checkForUpdateAsync();
+      if (!result.isAvailable) {
+        setState('uptodate');
+        setTimeout(() => setState('idle'), 1800);
+        return;
+      }
+      setState('downloading');
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync();
+      // reloadAsync replaces the JS bundle; nothing after this runs.
+    } catch {
+      setState('error');
+      setTimeout(() => setState('idle'), 1800);
+    }
+  }
 
   async function reload() {
-    if (reloading) return;
-    setReloading(true);
     try {
       await Updates.reloadAsync();
     } catch {
-      setReloading(false);
+      // swallow — user can tap again
     }
   }
 
@@ -66,10 +92,62 @@ export function UpdateBanner() {
         top: 0,
         left: 0,
         right: 0,
-        alignItems: 'center',
         zIndex: 9999,
       }}
     >
+      {/* (1) Auto-pill — only when an update is staged */}
+      {state === 'ready' ? <ReadyPill onReload={reload} /> : null}
+
+      {/* (2) Hidden tap-dot — always present in top-right corner */}
+      <Pressable
+        onPress={manualPull}
+        hitSlop={20}
+        style={{
+          position: 'absolute',
+          top: 4,
+          right: 4,
+          width: 14,
+          height: 14,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {state === 'idle' || state === 'ready' ? (
+          <View
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: '#00A7A5',
+              opacity: 0.18,
+            }}
+          />
+        ) : state === 'checking' || state === 'downloading' ? (
+          <ActivityIndicator size="small" color="#00A7A5" />
+        ) : (
+          <View
+            style={{
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+              borderRadius: 999,
+              backgroundColor: state === 'uptodate' ? '#16A34A' : '#DC2626',
+            }}
+          >
+            <Text style={{ color: 'white', fontSize: 9, fontWeight: '700' }}>
+              {state === 'uptodate' ? '✓' : '!'}
+            </Text>
+          </View>
+        )}
+      </Pressable>
+    </View>
+  );
+}
+
+function ReadyPill({ onReload }: { onReload: () => void | Promise<void> }) {
+  const [expanded, setExpanded] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  return (
+    <View style={{ alignItems: 'center' }}>
       <Pressable
         onPress={() => setExpanded((e) => !e)}
         style={{
@@ -95,7 +173,11 @@ export function UpdateBanner() {
               Update lista — reiniciar para aplicar
             </Text>
             <Pressable
-              onPress={reload}
+              onPress={async () => {
+                if (reloading) return;
+                setReloading(true);
+                await onReload();
+              }}
               disabled={reloading}
               hitSlop={6}
               style={{

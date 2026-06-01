@@ -39,7 +39,7 @@ export class OwnerSweepsScheduler {
     try {
       const result = await this.runOnce();
       this.logger.log(
-        `Owner-sweep cron: companies=${result.companies} owners=${result.owners} created=${result.created}`,
+        `Owner-sweep cron: companies=${result.companies} owners=${result.owners} created=${result.created} reassigned=${result.reassigned}`,
       );
     } catch (err) {
       this.logger.error(
@@ -54,6 +54,63 @@ export class OwnerSweepsScheduler {
     return this.runOnce();
   }
 
+  /** Adopt orphan open sweeps (assigneeUserId IS NULL) created during a
+   *  window when no active field_agent existed. Round-robin to the agent
+   *  with the oldest `assignedAt`. Without this, a momentarily-empty agent
+   *  pool permanently strands sweeps because nothing else reassigns them. */
+  private async reassignOrphans(companyId: string): Promise<number> {
+    const orphans = await this.prisma.ownerSweep.findMany({
+      where: {
+        companyId,
+        status: { in: ['pending', 'in_progress'] },
+        assigneeUserId: null,
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (orphans.length === 0) return 0;
+
+    const agents = await this.prisma.user.findMany({
+      where: {
+        companyId,
+        deletedAt: null,
+        status: 'active',
+        roles: { has: 'field_agent' as never },
+      },
+      select: { id: true },
+    });
+    if (agents.length === 0) return 0;
+
+    const groups = await this.prisma.ownerSweep.groupBy({
+      by: ['assigneeUserId'],
+      where: { companyId, assigneeUserId: { not: null } },
+      _max: { assignedAt: true },
+    });
+    const lastByAgent = new Map<string, number>();
+    for (const g of groups) {
+      if (g.assigneeUserId && g._max.assignedAt) {
+        lastByAgent.set(g.assigneeUserId, g._max.assignedAt.getTime());
+      }
+    }
+    const queue = agents
+      .map((a) => ({ id: a.id, last: lastByAgent.get(a.id) ?? 0 }))
+      .sort((a, b) => a.last - b.last);
+
+    const now = new Date();
+    let reassigned = 0;
+    for (const o of orphans) {
+      const pick = queue[0]!;
+      await this.prisma.ownerSweep.update({
+        where: { id: o.id },
+        data: { assigneeUserId: pick.id, assignedAt: now },
+      });
+      reassigned++;
+      pick.last = now.getTime();
+      queue.sort((a, b) => a.last - b.last);
+    }
+    return reassigned;
+  }
+
   private async runOnce() {
     const companies = await this.prisma.company.findMany({
       where: { deletedAt: null },
@@ -61,12 +118,14 @@ export class OwnerSweepsScheduler {
     });
     let owners = 0;
     let created = 0;
+    let reassigned = 0;
     const availabilityCutoff = new Date(
       Date.now() - AVAILABILITY_STALE_DAYS * 24 * 60 * 60 * 1000,
     );
     const faqCutoff = new Date(Date.now() - FAQ_STALE_DAYS * 24 * 60 * 60 * 1000);
 
     for (const c of companies) {
+      reassigned += await this.reassignOrphans(c.id);
       const candidates = await this.prisma.owner.findMany({
         where: {
           companyId: c.id,
@@ -101,6 +160,6 @@ export class OwnerSweepsScheduler {
         owners++;
       }
     }
-    return { companies: companies.length, owners, created };
+    return { companies: companies.length, owners, created, reassigned };
   }
 }
