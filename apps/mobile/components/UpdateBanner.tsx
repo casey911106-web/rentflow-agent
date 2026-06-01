@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Updates from 'expo-updates';
 
 type State = 'idle' | 'checking' | 'downloading' | 'ready' | 'uptodate' | 'error';
@@ -19,6 +20,7 @@ type State = 'idle' | 'checking' | 'downloading' | 'ready' | 'uptodate' | 'error
  */
 export function UpdateBanner() {
   const [state, setState] = useState<State>('idle');
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (__DEV__) return; // expo-updates is a no-op in dev builds.
@@ -89,7 +91,7 @@ export function UpdateBanner() {
       pointerEvents="box-none"
       style={{
         position: 'absolute',
-        top: 0,
+        top: insets.top,
         left: 0,
         right: 0,
         zIndex: 9999,
@@ -98,16 +100,18 @@ export function UpdateBanner() {
       {/* (1) Auto-pill — only when an update is staged */}
       {state === 'ready' ? <ReadyPill onReload={reload} /> : null}
 
-      {/* (2) Hidden tap-dot — always present in top-right corner */}
+      {/* (2) Hidden tap-dot — top-right inside the dark header bar.
+         insets.top clears the iPhone status bar / Dynamic Island so the
+         dot sits in the navy header area where it's reachable. */}
       <Pressable
         onPress={manualPull}
         hitSlop={20}
         style={{
           position: 'absolute',
-          top: 4,
-          right: 4,
-          width: 14,
-          height: 14,
+          top: 14,
+          right: 12,
+          width: 18,
+          height: 18,
           alignItems: 'center',
           justifyContent: 'center',
         }}
@@ -115,11 +119,11 @@ export function UpdateBanner() {
         {state === 'idle' || state === 'ready' ? (
           <View
             style={{
-              width: 6,
-              height: 6,
-              borderRadius: 3,
-              backgroundColor: '#00A7A5',
-              opacity: 0.18,
+              width: 7,
+              height: 7,
+              borderRadius: 3.5,
+              backgroundColor: '#FFFFFF',
+              opacity: 0.22,
             }}
           />
         ) : state === 'checking' || state === 'downloading' ? (
