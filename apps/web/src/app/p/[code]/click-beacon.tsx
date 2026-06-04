@@ -23,6 +23,9 @@ export function ClickBeacon({ slug }: { slug: string }) {
       method: 'GET',
       keepalive: true,
       cache: 'no-store',
+      // Required so the API's anti-cheat dedup cookie (rfc_<slug>) is
+      // sent and stored across cross-origin beacon hits.
+      credentials: 'include',
     }).catch(() => {
       /* swallow — best-effort */
     });

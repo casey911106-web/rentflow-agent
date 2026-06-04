@@ -1,6 +1,6 @@
-import { Controller, Get, NotFoundException, Param, Query, Res } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, Req, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator';
 import { FilesService } from '../files/files.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -200,19 +200,38 @@ export class PublicController {
    * Beacon endpoint hit by the marketplace page when a visitor lands via a
    * tracked link (`/p/<CODE>?s=<SLUG>`). Best-effort — we never throw, and
    * an unknown slug returns 204 like a known one. Keeps probing cheap.
+   *
+   * Anti-cheat: a 24h cookie per slug deduplicates repeat hits from the
+   * same browser. The publisher previewing or refreshing their own post
+   * must not be able to inflate the click counter that feeds the bonus
+   * pool standings. A real prospect on a different device still counts.
    */
   @Public()
   @Get('track/click/:slug')
-  async trackClick(@Param('slug') slug: string, @Res() res: Response) {
+  async trackClick(
+    @Param('slug') slug: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     const safe = (slug ?? '').replace(/[^A-Z0-9]/gi, '').slice(0, 16);
     if (safe) {
-      try {
-        await this.prisma.postPlacement.updateMany({
-          where: { trackingSlug: safe },
-          data: { clicks: { increment: 1 }, lastClickAt: new Date() },
-        });
-      } catch {
-        // intentionally swallow — public beacon
+      const cookieName = `rfc_${safe}`;
+      const alreadyCounted = (req.headers.cookie ?? '')
+        .split(';')
+        .some((c) => c.trim().startsWith(`${cookieName}=`));
+      if (!alreadyCounted) {
+        try {
+          await this.prisma.postPlacement.updateMany({
+            where: { trackingSlug: safe },
+            data: { clicks: { increment: 1 }, lastClickAt: new Date() },
+          });
+        } catch {
+          // intentionally swallow — public beacon
+        }
+        res.setHeader(
+          'Set-Cookie',
+          `${cookieName}=1; Max-Age=86400; Path=/public/track/click; SameSite=None; Secure; HttpOnly`,
+        );
       }
     }
     res.setHeader('Cache-Control', 'no-store');
