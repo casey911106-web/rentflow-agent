@@ -201,6 +201,7 @@ export class PublicController {
    * tracked link (`/p/<CODE>?s=<SLUG>`). Best-effort — we never throw, and
    * an unknown slug returns 204 like a known one. Keeps probing cheap.
    */
+  @Public()
   @Get('track/click/:slug')
   async trackClick(@Param('slug') slug: string, @Res() res: Response) {
     const safe = (slug ?? '').replace(/[^A-Z0-9]/gi, '').slice(0, 16);
