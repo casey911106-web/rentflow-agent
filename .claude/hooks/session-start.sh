@@ -34,4 +34,12 @@ pnpm install
 echo "[session-start] Generating Prisma client…"
 pnpm db:generate
 
+# 3. Make the EAS CLI available so OTA updates (`eas update`) can be run from
+#    the session. Optional convenience — never blocks startup if it fails.
+#    Auth happens via the EXPO_TOKEN env var (set in the environment config).
+if ! command -v eas >/dev/null 2>&1; then
+  echo "[session-start] Installing eas-cli (for OTA updates)…"
+  npm install -g eas-cli >/dev/null 2>&1 || echo "[session-start] eas-cli install skipped (continuing)."
+fi
+
 echo "[session-start] Ready. Run 'pnpm typecheck' or 'pnpm build' to verify."
