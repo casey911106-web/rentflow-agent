@@ -11,6 +11,9 @@
     "web": "expo start --web",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "update": "eas update",
+    "update:preview": "eas update --branch preview",
+    "update:prod": "eas update --branch production",
     "eas-build-post-install": "cd ../.. && pnpm --filter @rentflow/shared build"
   },
   "dependencies": {
