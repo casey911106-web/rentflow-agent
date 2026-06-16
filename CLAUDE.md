@@ -1,78 +1,271 @@
-# CLAUDE.md — RentFlow Agent
+# rentflow-agent — Rental Conversion Operating System (Dubai)
 
-Guía para sesiones de Claude Code (especialmente **sesiones web/remotas
-iniciadas desde el teléfono**). Contexto: MVP en uso real (no crítico), con
-backend en Supabase (prod) y app móvil Expo distribuida vía EAS.
+**Familia de deploy:** **A (sub-variante git-pull)** — el deploy real corre en el VPS via `git fetch + reset --hard origin/main + docker compose build/up`, NO rsync from local.
+**Audiencia (hoy):** **TEAM-INTERNAL** (ops + 2 publishers). Multi-tenant ready en el data model para futuros clientes externos pero NO hay tenant externo conectado todavía → deploy directo aplica. (Cuando entre primer cliente externo, mover a workflow staging-first.)
+**URLs:**
+- API: `rentflow-api.rentalho.com` (VPS, NestJS :3001)
+- Web: `app.rentalho.com` (Vercel, Next.js)
+- DB: Supabase Postgres (managed)
+**Repo en GitHub** (no GitLab): `github.com/casey911106-web/rentflow-agent`
+**Mapa del workspace:** `/Users/CARLOS/VAs/WORKSPACE.md`
+**Credenciales:** `/Users/CARLOS/VAs/AUTH.md`
 
-## Setup de la sesión
+⚠️ **Bomba conocida — leer antes de tocar deploy:** `bin/deploy.sh` está diseñado para correr **DENTRO DEL VPS**. Hace `git reset --hard origin/main`. **NUNCA ejecutarlo desde tu laptop** — borraría tus cambios locales no commiteados. El shim `./deploy.sh` de la raíz es seguro porque hace push y SSH-and-run, no llama a bin/deploy.sh local.
 
-El hook `.claude/hooks/session-start.sh` corre automáticamente en sesiones
-web y deja todo listo:
+VPS path: rentflow vive en **`/home/rentalho/apps/rentflow-agent/`** (misma convención que el resto del workspace). Si necesitás `ls` o `cat` algo en el VPS, ahí está.
 
-1. `pnpm install` (workspace completo)
-2. `pnpm db:generate` (cliente Prisma — no necesita DB)
-3. Instala `eas-cli` global (para OTA updates)
+## Qué es
 
-No repitas estos pasos manualmente; si el hook corrió, ya están hechos.
+> **"Rental conversion operating system"** — convertir social-rental inquiries en viewings calificadas y deals cerrados, manteniendo inventario verificado a diario.
 
-## Comandos que funcionan
+NO es un posting tool. El posting solo alimenta el real producto: closed-loop intake → availability verification → WhatsApp lead capture → AI qualification → viewing → deal closed → commission collected, con attribution + scoring en cada paso.
 
-| Comando | Estado |
-|---|---|
-| `pnpm typecheck` | ✅ Verifica todo el monorepo. **Úsalo antes de cada commit.** |
-| `pnpm build` | ✅ |
-| `pnpm db:generate` | ✅ No requiere base de datos |
-| `pnpm lint` | ❌ Roto (config ESLint legacy + eslint sin instalar en api/mobile). No intentes arreglarlo de pasada. |
-| `pnpm test` | ❌ No hay tests escritos; jest sale con error "No tests found". |
+Construido primero como plataforma ops INTERNA de un negocio Dubai (short-term + monthly + holiday). Multi-tenant **desde día uno** en el data model (`companyId` en todo) para hostear futuros third-party owners.
 
-El loop de desarrollo real es: **editar → `pnpm typecheck` → commit → push**.
+**Norte estratégico actual (2026-05-24, [[rentflow-north-2026-05-24]]):** pain top = más leads / más reach en publicaciones. **NO hardening enterprise.** Equipo = 2 publishers. Próxima sesión arranca por top-funnel.
 
-## ⚠️ Regla de oro: el repo puede estar detrás de la PC del dueño
+## Estructura (monorepo turbo)
 
-El dueño desarrolla también en su PC local y **puede tener trabajo sin
-pushear**. Este contenedor solo ve lo que está en GitHub. Consecuencias:
-
-- Antes de un `eas update`, **confirmar con el usuario** que el repo
-  contiene la última versión (que la PC ya pusheó su trabajo). Publicar
-  desde un repo desactualizado manda un bundle viejo a usuarios reales.
-- Si un archivo "falta" o una feature "no existe", puede estar solo en su
-  PC — preguntar antes de re-implementarla.
-
-## OTA updates (EAS Update) desde la sesión
-
-La app móvil (`apps/mobile`, Expo SDK 54) tiene EAS Update configurado
-(canales `preview` y `production`).
-
-```bash
-# requiere EXPO_TOKEN en el entorno
-pnpm --filter @rentflow/mobile update:preview -m "mensaje"
-pnpm --filter @rentflow/mobile update:prod -m "mensaje"
+```
+rentflow-agent/
+├── apps/
+│   ├── api/                — NestJS 10 REST API + WhatsApp webhooks + AI workflow runner (:3001)
+│   ├── web/                — Next.js 14 operations dashboard → Vercel
+│   └── mobile/             — Expo (RN) field-agent app
+├── packages/
+│   ├── database/           — Prisma schema + migrations + seed (Postgres)
+│   ├── shared/             — Types, enums, DTOs, utils
+│   ├── ai/                 — Provider abstraction (mock / OpenAI / Anthropic)
+│   ├── integrations/       — WhatsApp Cloud API adapter (+ mock) + S3 adapter
+│   ├── ui/                 — Web UI primitives (Tailwind + shadcn)
+│   └── config/             — eslint / tsconfig / tailwind presets compartidos
+├── bin/deploy.sh           — ⚠️ corre en VPS (git pull + docker), NO en local
+├── deploy.sh               — shim seguro: git push + ssh-and-run (Familia A convención)
+├── docker-compose.prod.yml — solo API (Postgres es Supabase, no local)
+├── docker-compose.yml      — Postgres + Redis + MinIO local para dev
+├── Makefile                — atajo `make deploy` (corre en VPS)
+├── docs/                   — arquitectura, PRD, AI flows, scoring, compliance
+│   └── superpowers/        — plans + specs (work-in-progress design docs)
+└── turbo.json
 ```
 
-Checklist antes de `update:prod`:
-1. ¿El usuario confirmó que el repo está al día respecto a su PC?
-2. ¿`pnpm typecheck` pasa?
-3. ¿El cambio es solo JS/assets? Cambios nativos (plugins nuevos,
-   permisos, upgrade de Expo) **no** salen por OTA — requieren `eas build`.
-4. Mostrar al usuario el diff/log de lo que se va a publicar y esperar su OK.
+## Stack (totalmente distinto a RentalHo)
 
-## Secretos y producción
+| Layer | Tech |
+|---|---|
+| API | **NestJS 10**, TypeScript strict, **Postgres + Prisma**, Redis, **BullMQ**, Zod, Swagger |
+| Web | Next.js 14, React 18, Tailwind, **shadcn/ui**, **TanStack Query**, Recharts |
+| Mobile | Expo SDK **54** (alineado con RentalHo), RN, **NativeWind** styling |
+| AI | Provider abstraction (default mock para dev) |
+| Integrations | WhatsApp Cloud API (mockable), S3-compatible storage |
+| Infra prod | Docker Compose en VPS (solo API) + Vercel (web) + **Supabase** (Postgres managed) |
+| Infra dev | Docker Compose local (Postgres + Redis + MinIO) |
 
-- Los secretos (`EXPO_TOKEN`, `DATABASE_URL` de Supabase, `AI_API_KEY`,
-  `WHATSAPP_*`) se inyectan como variables del entorno remoto, configuradas
-  en la consola de Claude Code on the web (*Environment → Variables*).
-  Aplican a sesiones **nuevas**.
-- Si el usuario pega un secreto en el chat, úsalo solo en memoria/env de la
-  sesión. **Nunca** escribirlo en archivos del repo ni en commits.
-- `DATABASE_URL` apunta a **prod real**. Para diagnósticos preferir
-  consultas de solo lectura; escrituras solo con instrucción explícita.
+⚠️ **NO Mongo, NO Hostaway, NO 360dialog** — este repo no comparte stack con RentalHo más allá de la VPS host. **Cero cross-import** de código entre proyectos.
 
-## Estructura
+## Comandos
 
-- `apps/api` — NestJS (backend)
-- `apps/web` — Next.js (panel)
-- `apps/mobile` — Expo / React Native (app de agentes)
-- `packages/database` — Prisma (schema + cliente)
-- `packages/shared`, `packages/ui`, `packages/config` — código compartido
+```bash
+pnpm install                       # deps monorepo
+pnpm typecheck                     # turbo run typecheck — OBLIGATORIO antes de deploy
+pnpm build                         # turbo run build
+pnpm dev                           # turbo run dev (todas las apps en paralelo)
+pnpm test                          # turbo run test
 
-pnpm workspaces + turbo. Node ≥20, pnpm ≥9.
+# Database (Prisma)
+pnpm db:generate                   # prisma generate
+pnpm db:migrate                    # prisma migrate dev / deploy
+pnpm db:seed                       # seed inicial
+pnpm db:reset                      # ⚠️ DROP + recreate (dev only)
+
+# Local stack
+pnpm docker:up                     # Postgres + Redis + MinIO
+pnpm docker:down
+pnpm docker:logs
+
+# Deploy
+bash deploy.sh                     # shim seguro: push + ssh-and-run-bin/deploy.sh
+```
+
+> ⚠️ **`pnpm lint` y `pnpm test` están rotos** (ESLint legacy sin instalar en api/mobile; no hay tests → jest "No tests found"). No los arregles de pasada. El loop real es: editar → `pnpm typecheck` → commit → push.
+
+**NO correr `bash bin/deploy.sh` desde local** (destruye cambios sin commitear). Solo el shim de raíz `./deploy.sh` o `make deploy` (ambos correctos).
+
+## Sesión desde teléfono (cloud) vs PC (Mac local)
+
+Este repo se trabaja desde **dos lugares**: la sesión de **PC** (Mac, este working tree) y **sesiones cloud desde el teléfono** (claude.ai/code, que **clonan `origin/main` de GitHub** — solo ven lo commiteado y empujado).
+
+En sesiones cloud, el hook `.claude/hooks/session-start.sh` corre solo al arrancar y deja listo: `pnpm install` + `pnpm db:generate` (cliente Prisma, no necesita DB) + `eas-cli` global. No repitas esos pasos a mano.
+
+### Qué hace cada sesión
+
+| Tarea | Teléfono (cloud) | PC (Mac local) |
+|---|---|---|
+| Editar código + `pnpm typecheck` + commit + `git push` | ✅ sí | ✅ sí |
+| Publicar app móvil OTA (`eas update`) | ✅ sí — requiere `EXPO_TOKEN` + dominios Expo en la allowlist | ✅ sí |
+| Leer DB de prod (diagnóstico read-only) | ✅ sí — requiere `DATABASE_URL` pooler + host en la allowlist | ✅ sí (ya en `.env`) |
+| Deploy API al VPS (`bash deploy.sh`) | ⚠️ **NO** — el shim hace SSH al VPS; hacelo desde **PC** | ✅ sí |
+| Migrations Prisma a Supabase (`pnpm db:migrate`) | ⚠️ **NO** — usa `DIRECT_URL` (host **IPv6-only**) y el contenedor cloud es IPv4. Desde **PC** | ✅ sí |
+| Refactors grandes / leer logs largos | preferible PC | ✅ |
+
+**Regla de oro:** teléfono = **loop de código + publish OTA + leer prod**. PC = **deploy de infra (API/VPS) + migrations Prisma**. El **web (Vercel) se auto-despliega en cualquier `git push origin main`**, desde donde sea.
+
+### Config de la sesión cloud (one-time, en la consola de claude.ai)
+
+⚠️ Variables y allowlist viven **por environment**. Usá **siempre el mismo** environment para el teléfono y archivá los demás. Cambiar config aplica a **sesiones nuevas**, no a la ya abierta.
+
+**Variables** (Settings → Environment variables):
+- `EXPO_TOKEN` = personal access token de Expo (cuenta `casey911106`). Necesario para publicar OTA.
+- `DATABASE_URL` = pooler de Supabase (ver abajo). Opcional, solo para leer prod.
+
+**Red** (Settings → Network → Custom, o "Full"):
+```
+api.expo.dev
+u.expo.dev
+expo.dev
+storage.googleapis.com
+aws-1-eu-central-1.pooler.supabase.com
+```
+
+### De dónde sacar cada valor
+
+1. **`EXPO_TOKEN`** — https://expo.dev/settings/access-tokens (logueado como `casey911106`) → **Create token** → copiar. Es lo único que `eas update` necesita para autenticar sin browser. Proyecto: `rentflow-agent` · projectId `c5c8d6ab-a07d-447c-945a-9dfbcff771fe`.
+2. **Dominios Expo** — fijos, los de arriba. `u.expo.dev` es el host OTA (ver `apps/mobile/app.json` → `updates.url`).
+3. **`DATABASE_URL` (pooler, IPv4, `:6543`)** — Supabase → proyecto `yiputdvzsfiiezajjyqd` → **Settings → Database → Connection string → pestaña Transaction (pooler)** → copiar. Forma:
+   `postgresql://postgres.yiputdvzsfiiezajjyqd:[PASSWORD]@aws-1-eu-central-1.pooler.supabase.com:6543/postgres`
+   La password es la del DB (ya está en tu `.env` local). Para solo-lectura segura, creá un rol `rentflow_ro` y usá ese user en vez de `postgres.*`.
+4. **Host del pooler (allowlist)** — `aws-1-eu-central-1.pooler.supabase.com` (de tu `.env`, region `eu-central-1`). **NO** uses el host de `DIRECT_URL` (`db.yiputdvzsfiiezajjyqd.supabase.co`) — es **IPv6-only** y el contenedor cloud es IPv4.
+
+### Publicar la app desde el teléfono (OTA)
+```bash
+# scripts ya definidos en apps/mobile/package.json
+pnpm --filter @rentflow/mobile update:preview -m "<qué cambió>"   # canal preview
+pnpm --filter @rentflow/mobile update:prod    -m "<qué cambió>"   # canal production
+```
+Requiere `EXPO_TOKEN` + dominios Expo en la allowlist. `eas.json` tiene `requireCommit` → **commiteá y pusheá antes de publicar** (no publica con árbol sucio). `eas build` (APK/binario nativo) **solo** para cambios nativos, no para JS/OTA.
+
+⚠️ **Regla de oro antes de `update:prod`:** la sesión cloud solo ve `origin/main`. Si desarrollás en paralelo desde la PC, **confirmá que la PC ya pusheó** — publicar desde un repo atrasado manda un bundle viejo a usuarios reales. Checklist: (1) repo al día vs PC · (2) `pnpm typecheck` pasa · (3) cambio es solo JS/assets · (4) mostrar el diff y esperar OK.
+
+## Deploy real (3-tier)
+
+| Componente | Cómo se despliega | Trigger |
+|---|---|---|
+| **API** (VPS) | `bin/deploy.sh` corre en VPS: `git fetch`, `git reset --hard origin/main`, `docker compose -f docker-compose.prod.yml build api`, `up -d --force-recreate api`, health-check a `:3001/health` | Manual desde laptop con `bash deploy.sh` (shim) |
+| **Web** (Vercel) | Auto-deploy en push a `main` (asumido — verificar dashboard) | `git push origin main` |
+| **DB** (Supabase) | `pnpm db:migrate` desde local apuntando a Supabase URL | Manual cuando hay migration nueva |
+
+**Pre-flight (one-time, ya hecho):**
+- DNS `rentflow-api.rentalho.com → 89.40.15.250`
+- VPS: `/home/rentalho/apps/rentflow-agent/` clonado + permisos al user `rentalho` + `.env` lleno con `DATABASE_URL` (pooler URL de Supabase), `DIRECT_URL` (direct URL para migrations), `REDIS_URL`, secrets WhatsApp, AI keys, S3 creds, `JWT_SECRET`.
+- Volumes Docker: `rentflow_uploads` montado en `/repo/uploads` (binario uploads compartido entre rebuilds).
+- nginx-proxy network (igual que el resto del VPS) — auto-rutea por `VIRTUAL_HOST`.
+
+## Diferencias clave con repos RentalHo
+
+| Item | RentalHo (ai, ops-mobile, etc.) | RentFlow Agent |
+|---|---|---|
+| DB | MongoDB ai_db (en VPS) | **Postgres en Supabase** (managed) |
+| ORM | mongodb driver oficial | **Prisma** |
+| Web backend | Next.js API routes | **NestJS** (separado del frontend) |
+| Queue | BullMQ local | BullMQ contra Redis local del VPS |
+| Web frontend | Next.js en VPS | **Next.js en Vercel** |
+| Mobile SDK | Expo 54 | **Expo 54** (no actualizar sin razón) |
+| Mobile styling | StyleSheet / Tailwind RN | **NativeWind** |
+| Deploy API | rsync from local | **git push + ssh-and-run** |
+| VPS path | `/home/rentalho/apps/<app>/` | `/home/rentalho/apps/rentflow-agent/` |
+| Remote | GitLab rhbnb/* | **GitHub casey911106-web/** |
+| WhatsApp number | +971 58 514 9408 | **+971 58 506 3316** (separado, ver split) |
+| Audiencia | Mix (interna + end-user) | Hoy interna, multi-tenant ready |
+
+## WhatsApp — WABA propia e independiente
+
+RentFlow tiene su **propia cuenta WhatsApp Business (WABA) desde día uno**, independiente de RentalHo. NO es un "split" de RentalHo — son dos proyectos distintos con cuentas Meta separadas.
+
+| Proyecto | Número | Estado |
+|---|---|---|
+| **RentFlow** (este repo) | `+971 58 506 3316` | activo, documentado en `deploy/README.md` |
+| RentalHo ops (otro proyecto) | `+971 58 514 9408` | activo, VAs Filipinas en device — ver [[rentalho-meta-whatsapp-ids]] |
+| RentalHo marketing (otro proyecto) | — | aún sin comprar, plan interno de RentalHo, NO aplica aquí |
+
+Para credenciales de Meta de este número, ver `AUTH.md` § WhatsApp Cloud (rentflow). Vars en `.env`:
+- `WHATSAPP_BUSINESS_PHONE_E164=+971585063316`
+- `WHATSAPP_CLOUD_API_PHONE_NUMBER_ID=...`
+- `WHATSAPP_CLOUD_API_BUSINESS_ACCOUNT_ID=...`
+- `WHATSAPP_CLOUD_API_ACCESS_TOKEN=...`
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN=...`
+- `WHATSAPP_APP_SECRET=...` (App Secret del FB app — para firma de webhooks)
+- `WHATSAPP_ADAPTER` — `cloud` o `mock` (mock para dev sin credenciales reales)
+- `OPERATOR_WHATSAPP_E164` — número del operador para alerts internas
+
+## Documentación rica en `docs/`
+
+Antes de cambios non-trivial, leer el doc correspondiente:
+- `architecture.md` — diagrama de componentes
+- `product-requirements.md` — PRD
+- `database-schema.md` — modelo de datos
+- `ai-agent-flows.md` — flows del AI qualification
+- `scoring-system.md` — sistema de scoring de leads
+- `posting-and-attribution.md` — cómo se rastrea fuente y conversión
+- `whatsapp-integration.md` — handshake con Meta Cloud
+- `security-and-compliance.md` — auth, tenant isolation, audit
+- `mvp-roadmap.md` — qué es MVP vs nice-to-have
+- `assumptions.md` — supuestos para diseño
+- `api-reference.md` — endpoints
+- `superpowers/{plans,specs}/` — diseños en progreso (revisar antes de iniciar feature nueva)
+
+## Reglas duras
+
+- ⚠️ **NO correr `bin/deploy.sh` desde laptop** — el `git reset --hard` destruye trabajo local. Solo el shim de raíz o `make deploy`.
+- **NO cross-import con código RentalHo.** Stacks distintos, propósitos distintos. Comparten solo VPS host.
+- ⚠️ **Multi-tenancy ya está en el data model** (`companyId` en todo) — toda query nueva debe scoper por tenant. Sin scope = leak entre clientes futuros.
+- **No hardening enterprise prematuro** — norte top-funnel, no compliance / sec advanced. Foco en leads + reach. Ver [[rentflow-north-2026-05-24]].
+- **Field agent strings en INGLÉS** (mobile + push + notifications + admin questions). Web admin puede seguir en español. Ver [[rentflow-field-agents-english]].
+- **No persistir state en JSON plano** — siempre Postgres. Ver [[no-flat-json-persistence]].
+- **No soluciones momentáneas** · [[no-temporary-fixes]]
+- **Investigar profundo antes de proponer fix** · [[investigate-deeply-before-solving]]
+- **NO mezclar con WhatsApp de RentalHo** — número distinto a propósito.
+
+## Auth (credenciales)
+
+Ver `/Users/CARLOS/VAs/AUTH.md`. Servicios este repo:
+- **Supabase Postgres** — `DATABASE_URL` (pooler para runtime) + `DIRECT_URL` (direct para migrations Prisma)
+- **Redis** local del VPS (`REDIS_URL=redis://redis:6379` interno; no expone fuera)
+- **WhatsApp Cloud API** (segunda WABA — VER vars arriba)
+- **AI provider** — `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL` (genérico — puede ser OpenAI, Anthropic, mock)
+- **S3-compatible storage** — `S3_ENDPOINT`, `S3_REGION`, S3 creds
+- **JWT** propio (no comparte con RentalHo) — `JWT_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN`
+- **VPS deploy** — alias `rentalho-vps` (mismo VPS que RentalHo, distinto path)
+- **Vercel** — auto-deploy (cuenta `casey911106-6293`)
+- **GitHub** — `gh` keyring (cuenta `casey911106-web`)
+
+## Skills, plugins y MCPs útiles
+
+**Skills frecuentes:**
+- Backend / DB: `claude-api`, `revops` (consultivo)
+- UI (apps/web): `frontend-design`, `ui-styling`, `ui-ux-pro-max`, `design-system`
+- UI (apps/mobile): igual + verificación de RN nuevas vs RN 0.81
+- Conversion / Marketing (alineado con norte top-funnel): `lead-magnets`, `copywriting`, `social-content`, `paid-ads`, `ad-creative`, `marketing-ideas`, `customer-research`
+- Lead/sales: `cold-email`, `email-sequence`, `sales-enablement`
+- Compliance ligero: NO `seo-audit`/enterprise; el norte es leads, no SEO técnico.
+- Verificación: `verify` antes de declarar terminado
+
+**MCPs típicos:**
+- `mcp__claude_ai_Vercel` — deploy + logs del web
+- `mcp__claude_ai_Notion` — si el equipo de publishers escribe ahí
+- `mcp__claude_ai_Google_Drive` — assets de publicación
+
+**Workflow — NO ceremony (regla dura, ver WORKSPACE.md §"Procesos PROHIBIDOS"):**
+
+- ⛔ **NO uses** `superpowers:writing-plans`, `superpowers:execute-plan`, `superpowers:subagent-driven-development`, `superpowers:brainstorming` salvo orden explícita de Carlos. (Pese a que `docs/superpowers/{plans,specs}/` existe en el repo, **eso son docs viejos**, no licencia para invocar la skill.)
+- ⛔ **NO uses TodoWrite** por reflejo. Features cross-app (api ↔ web ↔ mobile) NO requieren plan generado por la skill; el patrón directo funciona.
+- ✅ Patrón correcto: leer → editar → typecheck (turbo) → `bash deploy.sh` (push + ssh-and-run).
+- ✅ Si la tarea cruza apps (api + web + mobile) Y cambia contratos: avisar y pedir confirmación antes.
+- Ver [[skip-superpowers-ceremony]].
+
+## Memorias claude-mem clave de este repo
+
+Estrategia y producto: [[rentflow-north-2026-05-24]]
+Contexto comparativo (WABA RentalHo, NO RentFlow): [[rentalho-meta-whatsapp-ids]]
+Field agent UX: [[rentflow-field-agents-english]]
+Operación universal (también aplica acá): [[no-temporary-fixes]] [[investigate-deeply-before-solving]] [[no-flat-json-persistence]] [[skip-superpowers-ceremony]]
+Audience workflow: [[rentalho-landing-three-phase]] (cuando entre primer tenant externo, mover este repo a staging-first)
