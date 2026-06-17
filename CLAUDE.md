@@ -103,12 +103,12 @@ En sesiones cloud, el hook `.claude/hooks/session-start.sh` corre solo al arranc
 |---|---|---|
 | Editar código + `pnpm typecheck` + commit + `git push` | ✅ sí | ✅ sí |
 | Publicar app móvil OTA (`eas update`) | ✅ sí — requiere `EXPO_TOKEN` + dominios Expo en la allowlist | ✅ sí |
-| Leer DB de prod (diagnóstico read-only) | ✅ sí — requiere `DATABASE_URL` pooler + host en la allowlist | ✅ sí (ya en `.env`) |
+| Leer DB de prod (`psql` a Supabase) | ⚠️ **NO** — el cloud bloquea TCP Postgres `:6543` (probado con red Custom y Full); solo pasa HTTP(S). Usar la **Mac** o el **SQL editor de Supabase** (web, anda en el móvil) | ✅ sí (ya en `.env`) |
 | Deploy API al VPS (`bash deploy.sh`) | ⚠️ **NO** — el shim hace SSH al VPS; hacelo desde **PC** | ✅ sí |
 | Migrations Prisma a Supabase (`pnpm db:migrate`) | ⚠️ **NO** — usa `DIRECT_URL` (host **IPv6-only**) y el contenedor cloud es IPv4. Desde **PC** | ✅ sí |
 | Refactors grandes / leer logs largos | preferible PC | ✅ |
 
-**Regla de oro:** teléfono = **loop de código + publish OTA + leer prod**. PC = **deploy de infra (API/VPS) + migrations Prisma**. El **web (Vercel) se auto-despliega en cualquier `git push origin main`**, desde donde sea.
+**Regla de oro:** teléfono = **loop de código + publish OTA**. PC = **deploy de infra (API/VPS) + migrations Prisma + leer prod**. Para leer prod desde el móvil sin la Mac: **SQL editor de Supabase** en el navegador (el cloud no deja conectar a Postgres). El **web (Vercel) se auto-despliega en cualquier `git push origin main`**, desde donde sea.
 
 ### Config de la sesión cloud (one-time, en la consola de claude.ai)
 
@@ -116,25 +116,24 @@ En sesiones cloud, el hook `.claude/hooks/session-start.sh` corre solo al arranc
 
 **Variables** (Settings → Environment variables):
 - `EXPO_TOKEN` = personal access token de Expo (cuenta `casey911106`). Necesario para publicar OTA.
-- `DATABASE_URL` = pooler de Supabase (ver abajo). Opcional, solo para leer prod.
+- ~~`DATABASE_URL`~~ — **no la pongas**: el cloud bloquea el puerto Postgres, así que `psql` nunca conecta (verificado 2026-06-17, red Custom y Full). Leé prod desde la Mac o el SQL editor de Supabase.
 
-**Red** (Settings → Network → Custom, o "Full"):
+**Red** (Settings → Network → **Custom** alcanza, no hace falta Full):
 ```
 api.expo.dev
 u.expo.dev
 expo.dev
 storage.googleapis.com
-aws-1-eu-central-1.pooler.supabase.com
 ```
 
 ### De dónde sacar cada valor
 
 1. **`EXPO_TOKEN`** — https://expo.dev/settings/access-tokens (logueado como `casey911106`) → **Create token** → copiar. Es lo único que `eas update` necesita para autenticar sin browser. Proyecto: `rentflow-agent` · projectId `c5c8d6ab-a07d-447c-945a-9dfbcff771fe`.
 2. **Dominios Expo** — fijos, los de arriba. `u.expo.dev` es el host OTA (ver `apps/mobile/app.json` → `updates.url`).
-3. **`DATABASE_URL` (pooler, IPv4, `:6543`)** — Supabase → proyecto `yiputdvzsfiiezajjyqd` → **Settings → Database → Connection string → pestaña Transaction (pooler)** → copiar. Forma:
-   `postgresql://postgres.yiputdvzsfiiezajjyqd:[PASSWORD]@aws-1-eu-central-1.pooler.supabase.com:6543/postgres`
-   La password es la del DB (ya está en tu `.env` local). Para solo-lectura segura, creá un rol `rentflow_ro` y usá ese user en vez de `postgres.*`.
-4. **Host del pooler (allowlist)** — `aws-1-eu-central-1.pooler.supabase.com` (de tu `.env`, region `eu-central-1`). **NO** uses el host de `DIRECT_URL` (`db.yiputdvzsfiiezajjyqd.supabase.co`) — es **IPv6-only** y el contenedor cloud es IPv4.
+3. **Leer prod desde el móvil** — `psql`/Postgres **NO funciona** desde sesiones cloud: el entorno bloquea TCP al puerto `:6543` (probado con red Custom y Full, 2026-06-17); solo deja pasar HTTP(S). Vías reales:
+   - **Mac** (sesión local): ya tiene el `DATABASE_URL` pooler en `.env` y conecta directo — lugar canónico para análisis de prod.
+   - **SQL editor de Supabase** en el navegador (anda en el teléfono): `select ... from "Lead"`, sin config ni credenciales expuestas.
+   - Prod-read **programático** desde el cloud (si algún día hace falta): única vía = **API REST de Supabase (PostgREST) sobre HTTPS**, que sí atraviesa el proxy, con key read-only. No implementado.
 
 ### Publicar la app desde el teléfono (OTA)
 ```bash
