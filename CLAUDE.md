@@ -110,6 +110,8 @@ En sesiones cloud, el hook `.claude/hooks/session-start.sh` corre solo al arranc
 
 **Regla de oro:** teléfono = **loop de código + publish OTA**. PC = **deploy de infra (API/VPS) + migrations Prisma + leer prod**. Para leer prod desde el móvil sin la Mac: **SQL editor de Supabase** en el navegador (el cloud no deja conectar a Postgres). El **web (Vercel) se auto-despliega en cualquier `git push origin main`**, desde donde sea.
 
+> ⚠️ **Regla dura — trabajo desde el teléfono (cloud) = SIEMPRE PR.** Cuando se desarrolla desde una sesión cloud, NO se mergea ni pushea directo a `main`: se trabaja en la branch de la sesión y se **abre un Pull Request** para que Carlos revise el diff y mergee. El deploy del API (`git reset --hard origin/main` en VPS) solo agarra lo que está en `main`, así que el merge del PR es el gate antes de deployar. Esto pisa la default de "no crear PR salvo pedido": desde el cloud, el PR es el flujo por defecto. (Establecido 2026-06-17 por Carlos.)
+
 ### Config de la sesión cloud (one-time, en la consola de claude.ai)
 
 ⚠️ Variables y allowlist viven **por environment**. Usá **siempre el mismo** environment para el teléfono y archivá los demás. Cambiar config aplica a **sesiones nuevas**, no a la ya abierta.
