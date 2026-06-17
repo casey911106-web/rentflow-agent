@@ -6,7 +6,7 @@ import { OperatorNotifierService } from '../ai-agent/operator-notifier.service';
 import { SuggestionEngineService, type LeadState } from '../ai-agent/suggestion-engine.service';
 
 /**
- * Four follow-up tiers, all measured in minutes-since-OUR-last-reply.
+ * Two follow-up tiers, all measured in minutes-since-OUR-last-reply.
  * Each tier has a small window so the every-5-min cron always catches them.
  * No tier ever fires once the lead's 24h Meta customer-service window has
  * closed (>= 24h since their last inbound message) — we don't pay for
@@ -14,6 +14,11 @@ import { SuggestionEngineService, type LeadState } from '../ai-agent/suggestion-
  *
  * Each tier produces a *pending* Suggestion that needs operator approval —
  * proactive nudges never auto-approve, regardless of confidence.
+ *
+ * Trimmed from 4 tiers to 2 (2026-06): the intermediate 6h/20h nudges burned
+ * Claude tokens on silent leads without converting. We keep only the two
+ * highest-leverage moments — the early "got-distracted" nudge and the
+ * last-call before the 24h window closes — halving proactive generation cost.
  */
 const FOLLOWUP_TIERS: Array<{
   label: string;
@@ -22,8 +27,6 @@ const FOLLOWUP_TIERS: Array<{
   intent: string; // hint for Claude prompt
 }> = [
   { label: '30min',  minMin: 30,   maxMin: 60,   intent: 'Soft, friendly nudge — they probably got distracted. One sentence.' },
-  { label: '6h',     minMin: 360,  maxMin: 390,  intent: 'Warmer follow-up — still helpful, ask if they have a question.' },
-  { label: '20h',    minMin: 1200, maxMin: 1230, intent: 'Closing tone — "anything else you wanted to know?". Polite final attempt.' },
   { label: '23h30',  minMin: 1410, maxMin: 1440, intent: 'Last-call before the chat window closes for 24h — "we are here if you need anything else, just say hi".' },
 ];
 
