@@ -144,15 +144,15 @@ export class ContentService {
 Output THREE captions for the same property, one per channel: \`whatsapp\`, \`facebook\`, \`classifieds\`. Every caption MUST follow this 4-part structure:
 
 1. HOOK (line 1) — make them stop scrolling. Use ONE of these patterns:
-   • Specific number ("AED 8,000/mes con balcón panorámico — Burj Al Arab a 2km")
-   • Provocative question ("¿Cansado de Madinat Jumeirah overpriced?")
-   • Sensory image ("Tu café de la mañana con vista al Burj Al Arab")
-   • Scarcity ("3 unidades a este precio · viewings empiezan mañana")
-   • Social proof ("3 leads en 2 horas, queda este uno")
-   FORBIDDEN: "Available now" alone, "Hello everyone", "Check this out", "Amazing apartment".
+   • Specific number ("AED 8,000/month with a panoramic balcony — 2km from Burj Al Arab")
+   • Provocative question ("Tired of overpriced studios in Dubai Marina?")
+   • Sensory image ("Your morning coffee with a full Marina view")
+   • Scarcity with a CONCRETE fact ("3 units left at this price, viewings start tomorrow")
+   • Social proof ("3 people asked about this one today, one left")
+   FORBIDDEN hooks — these read like a bot, NEVER use them: "Available now" alone, "Hello everyone", "Check this out", "Amazing apartment", "won't last", "won't last the weekend", "moving in under 48 hours", "Here is exactly why", "you won't believe", and any vague urgency that has no concrete number or fact behind it.
 
 2. WHAT (2-3 lines) — translate features into BENEFITS, not specs:
-   • "Balcón privado" → "tu café de la mañana con vista al puerto"
+   • "Private balcony" → "your morning coffee with a harbour view"
    • "Walking distance to Metro" is OK only if explicitly in data
    • Don't invent features not in the property data
 
@@ -165,6 +165,8 @@ Output THREE captions for the same property, one per channel: \`whatsapp\`, \`fa
 4. CTA + LINK (1-2 lines) — one clear next step.
    • whatsapp variant uses the WhatsApp URL provided.
    • facebook + classifieds variants use the marketplace URL.
+
+NO PLACEHOLDERS — every value must be concrete and taken from the property data below. NEVER output a bracketed or templated placeholder such as [Area], [Price], [X], {{area}}, or <area>, and never write a fill-in-the-blank sentence. If a value is missing from the data, OMIT that line entirely — do not leave a placeholder and do not guess.
 
 CHANNEL-SPECIFIC RULES — strict:
 
@@ -181,7 +183,8 @@ End with marketplace URL + "Agent WhatsApp: <local number> — quote code <code>
 LANGUAGE — English ONLY. RentFlow's audience is Dubai expats and the
 business publishes to English-speaking groups, pages and channels.
 Avoid "amazing", "super luxurious", "stunning" without proof — let the
-photo + the price say it.
+photo + the price say it. Proofread before output — zero typos, correct
+spelling (e.g. "high floor", not "higth"), thousands separators on prices.
 
 NEVER LIE — if a feature isn't in the property data, don't invent it. If the description mentions amenities, you can use them. The 3 mandatory numbers (rent / deposit / commission) come from the data; commission is calculated by bedroom count: studio/1BR = AED 1,000; 2-3BR = AED 2,000; 4+/villa = AED 3,000.
 
@@ -211,6 +214,21 @@ OUTPUT — JSON object only, no other text:
     const depositLine = property.depositAed
       ? `AED ${Number(property.depositAed).toLocaleString()} (refundable)`
       : 'TBC';
+
+    // Rotate the hook angle on every generation so consecutive posts (across
+    // properties and re-runs) don't all open with the same pattern — this is
+    // what stops the captions reading as one repetitive template. An explicit
+    // `differentAngle` (operator pressed "regenerate") always takes priority.
+    const HOOK_ANGLES = [
+      'Open with a SPECIFIC-NUMBER hook: the price plus one concrete standout feature from the data.',
+      "Open with a PROVOCATIVE QUESTION hook aimed at a renter's real frustration (price, location, agency fees).",
+      'Open with a SENSORY-IMAGE hook: what daily life in this exact unit feels like.',
+      'Open with a CONCRETE-SCARCITY hook: a real, specific fact only — never vague urgency.',
+      'Open with a SOCIAL-PROOF hook: genuine interest or demand, stated concretely.',
+    ];
+    const rotatedAngle = HOOK_ANGLES[Math.floor(Math.random() * HOOK_ANGLES.length)];
+    const angleHint = input.differentAngle ?? rotatedAngle;
+
     const userPrompt = `Property data:
 - Code: ${property.code}
 - Name: ${property.name}
@@ -228,7 +246,8 @@ ${(property.description ?? '(no description provided)').slice(0, 1500)}
 URLs to embed:
 - Marketplace (use in facebook + classifieds): ${input.marketplaceUrl}
 - WhatsApp click-to-chat (use in whatsapp): ${input.whatsappUrl}
-${input.differentAngle ? `\nREGENERATION HINT: ${input.differentAngle}\nPick a fundamentally different hook angle than before — different emotional register, different framing.` : ''}
+
+HOOK ANGLE FOR THIS GENERATION (apply to the whatsapp + facebook hooks): ${angleHint}${input.differentAngle ? '\nThis is a REGENERATION — make it fundamentally different from the previous version: different emotional register, different framing.' : ''}
 
 Generate the JSON now.`;
 
