@@ -90,7 +90,7 @@ export class ViewingReminderScheduler {
         // Issue a fresh reschedule token (one-shot, 24h expiry)
         const token = await this.scheduler.issueRescheduleToken(v.companyId, v.id);
         const marketplaceBase =
-          process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
+          process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com';
         const link = `${marketplaceBase}/p/${v.property.code}/schedule?t=${token.id}`;
         const time = v.scheduledAt.toLocaleTimeString('en-GB', {
           timeZone: 'Asia/Dubai',

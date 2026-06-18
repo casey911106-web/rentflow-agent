@@ -286,7 +286,7 @@ export class PostingService {
     // template versions if the AI call fails (e.g. provider outage) so a
     // generate() never errors out solely on copy generation.
     const trackingShortUrl = `${process.env.TRACKING_BASE_URL ?? 'http://localhost:3001/t'}/${postCode}`;
-    const marketplaceUrl = `${process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app'}/p/${sourceCode}`;
+    const marketplaceUrl = `${process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com'}/p/${sourceCode}`;
     let shortCaption = fallback.shortCaption;
     let longCaption = fallback.longCaption;
     let whatsappCaption = fallback.whatsappCaption;
@@ -371,7 +371,7 @@ export class PostingService {
       postCode: pkg.trackingLink.postCode,
       waMeBaseUrl: waBase,
     });
-    const marketplaceUrl = `${process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app'}/p/${pkg.property.code}`;
+    const marketplaceUrl = `${process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com'}/p/${pkg.property.code}`;
 
     const ai = await this.content.generateFastPostingCaptions({
       propertyId: pkg.propertyId,
