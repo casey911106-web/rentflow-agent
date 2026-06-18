@@ -9,7 +9,7 @@ import { TelegramAdapter } from './telegram.adapter';
 const SLUG_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const SLUG_LENGTH = 8;
 
-const MARKETPLACE_BASE = process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
+const MARKETPLACE_BASE = process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com';
 const PUBLIC_API_BASE = process.env.PUBLIC_API_URL ?? 'https://rentflow-api.rentalho.com';
 
 const TG_CAPTION_MAX = 1024; // sendPhoto/sendMediaGroup caption limit

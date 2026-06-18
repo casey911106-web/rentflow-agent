@@ -365,7 +365,7 @@ export class IngestionService {
       }
     }
 
-    const baseWeb = process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
+    const baseWeb = process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com';
     const headline = missing.length > 0
       ? `⚠️ Property ${property.code} creada — falta info`
       : `✓ Property ${property.code} creada (not_ready_to_post)`;
