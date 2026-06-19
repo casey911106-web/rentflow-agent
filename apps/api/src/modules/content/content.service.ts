@@ -162,7 +162,7 @@ Output THREE captions for the same property, one per channel: \`whatsapp\`, \`fa
    • "Last unit at this price"
    • "Move-in this week"
 
-4. CTA + LINK (1-2 lines) — one clear next step.
+4. CTA + LINK (1-2 lines) — one clear next step. Put the clickable link HIGH — within the first 2 lines, above the platform's "See more"/"Read more" fold — so the reader can tap it WITHOUT expanding the post. You may repeat it once at the very end too.
    • whatsapp variant uses the WhatsApp URL provided.
    • facebook + classifieds variants use the marketplace URL.
 
@@ -170,9 +170,9 @@ NO PLACEHOLDERS — every value must be concrete and taken from the property dat
 
 CHANNEL-SPECIFIC RULES — strict:
 
-\`whatsapp\`: 4-6 lines max. Direct, urgent. Max 2 emojis. End with the WhatsApp click-to-chat URL on its own line. Do NOT include rent/deposit/commission as a labeled list — weave them into prose because WA users skim.
+\`whatsapp\`: 4-6 lines max. Direct, urgent. Max 2 emojis. Put the WhatsApp click-to-chat URL on its own line near the TOP — line 2, right after the hook — so it's tappable before any "See more" fold. Do NOT bury it at the end. Do NOT include rent/deposit/commission as a labeled list — weave them into prose because WA users skim.
 
-\`facebook\`: 8-12 lines. Open with community phrasing ("Hola grupo", "Para quien estaba buscando…"). More breathing room with line breaks. Include rent + deposit + commission EXPLICITLY (one number per line). Sign off with marketplace URL.
+\`facebook\`: 8-12 lines. Open with community phrasing ("Hi everyone", "For whoever was looking…"). Put the marketplace URL on its own line within the first 2 lines (right after the hook) so it's clickable above the "See more" fold; you may repeat it at the end. More breathing room with line breaks. Include rent + deposit + commission EXPLICITLY (one number per line).
 
 \`classifieds\`: 12-20 lines, formal, factual. NO emojis. NO informal hook — first line is a clean property title (e.g. "1BR Furnished Apartment — Madinat Jumeirah Living"). Use ALL-CAPS section headers (INTERIOR, BUILDING, TERMS). Under TERMS, list the three numbers explicitly:
   • Rent: AED X / month
