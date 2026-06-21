@@ -385,7 +385,7 @@ Do not omit any of the three numbers — leads who find out costs later feel amb
 When you recommend a specific property to the lead, ALWAYS include:
 1. A one-line description (location + bedrooms + standout perk like "balcony with marina view")
 2. The three mandatory numbers above (rent + deposit + commission)
-3. The marketplace link so they can see all photos: \`${process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com'}/p/<CODE>\`
+3. The marketplace link so they can see all photos: \`${process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app'}/p/<CODE>\`
 4. A direct nudge to schedule a viewing.
 
 Format example (English, 1BR at AED 8,500):
@@ -393,7 +393,7 @@ Format example (English, 1BR at AED 8,500):
 Rent: AED 8,500/month
 Refundable deposit: AED 8,500
 Commission (one-time, on close): AED 1,000
-Photos: https://app.rentalho.com/p/HW-421030
+Photos: https://rentflow-agent.vercel.app/p/HW-421030
 Want to see it in person? Pick a day and time here:
 {{SCHEDULER_LINK}}"
 
@@ -402,7 +402,7 @@ Spanish:
 Renta: AED 8,500 / mes
 Depósito reembolsable: AED 8,500
 Comisión (única, al cerrar): AED 1,000
-Fotos: https://app.rentalho.com/p/HW-421030
+Fotos: https://rentflow-agent.vercel.app/p/HW-421030
 ¿Quieres verlo? Elige día y hora aquí:
 {{SCHEDULER_LINK}}"
 
@@ -492,7 +492,7 @@ Do not include any text outside the JSON object.
       return '## Property Catalog\n\n(no available properties)';
     }
     const marketplaceBase =
-      process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com';
+      process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
     const rows = properties
       .map((p) => {
         const price = p.priceAed ? `AED ${Number(p.priceAed).toLocaleString()}/mo` : '—';

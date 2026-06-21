@@ -56,7 +56,7 @@ export class TrackingController {
     }
 
     const marketplaceBase =
-      process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com';
+      process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
     const propertyCode = link.postPackage?.property?.code;
     if (!propertyCode) {
       return res.redirect(302, link.whatsappUrl);

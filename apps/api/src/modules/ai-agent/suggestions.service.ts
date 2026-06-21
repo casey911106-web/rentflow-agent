@@ -415,7 +415,7 @@ export class SuggestionsService {
       return text.replace(SCHEDULER_PLACEHOLDER_RE, '').trim();
     }
 
-    const base = process.env.MARKETPLACE_BASE_URL ?? 'https://app.rentalho.com';
+    const base = process.env.MARKETPLACE_BASE_URL ?? 'https://rentflow-agent.vercel.app';
     const url = `${base}/p/${propertyCode}/schedule?t=${token.id}`;
 
     if (hasPlaceholder) {
