@@ -3,7 +3,10 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 const HOSTAWAY_BASE = 'https://api.hostaway.com/v1';
-const SYNC_REASON = 'hostaway-sync';
+const CAUCEO_BASE_DEFAULT = 'https://sync.cauceo.com';
+const HOSTAWAY_REASON = 'hostaway-sync';
+const CAUCEO_REASON = 'cauceo-sync';
+const SYNC_REASONS = [HOSTAWAY_REASON, CAUCEO_REASON];
 const DAYS = 90;
 
 interface CalendarDay {
@@ -12,21 +15,34 @@ interface CalendarDay {
   status: string;
 }
 
+interface CauceoCalendarDay {
+  date: string;
+  status: 'available' | 'reserved' | 'blocked' | 'unknown';
+}
+
 interface Range {
   start: string;
   end: string;
 }
 
 /**
- * Daily Hostaway → RentFlow calendar sync.
+ * Daily PMS → RentFlow calendar sync.
  *
  * Runs at 05:00 Asia/Dubai. For each property whose code starts with HW-,
- * fetches the Hostaway calendar for the next 90 days, coalesces unavailable
- * days into PropertyAvailabilityBlock rows (reason='hostaway-sync', replacing
- * any prior synced blocks), and updates Property.status (rented vs available)
- * + availabilityConfirmedAt.
+ * fetches the next 90 days of calendar, coalesces unavailable days into
+ * PropertyAvailabilityBlock rows (replacing any prior synced blocks), and
+ * updates Property.status (rented vs available) + availabilityConfirmedAt.
  *
- * No-op when HOSTAWAY_ACCOUNT_ID / HOSTAWAY_API_KEY are not set.
+ * Source routing per property (carril M3):
+ * - Default: Hostaway (`/listings/{id}/calendar`), reason='hostaway-sync'.
+ * - Cauceo (`/api/v1/calendar/{hostawayListingId}` — Cauceo resolves the
+ *   Hostaway id natively, no manual mapping), reason='cauceo-sync', when:
+ *   - `RENTFLOW_AVAIL_SOURCE=cauceo` (total flip, D-day), or
+ *   - the property's Hostaway id is listed in `RENTFLOW_CAUCEO_UNITS`
+ *     (comma-separated, per-unit flip).
+ *   Both require `CAUCEO_API_KEY`; without it everything stays on Hostaway.
+ *
+ * No-op when neither Hostaway nor Cauceo credentials are set.
  */
 @Injectable()
 export class HostawayAvailabilityScheduler {
@@ -38,21 +54,23 @@ export class HostawayAvailabilityScheduler {
   @Cron('0 5 * * *', { name: 'hostaway-availability-sync', timeZone: 'Asia/Dubai' })
   async sweep(): Promise<void> {
     if (this.running) {
-      this.logger.warn('Skipping — previous Hostaway sweep still in progress');
+      this.logger.warn('Skipping — previous availability sweep still in progress');
       return;
     }
-    if (!process.env.HOSTAWAY_ACCOUNT_ID || !process.env.HOSTAWAY_API_KEY) {
-      this.logger.log('Hostaway credentials not set; skipping availability sweep');
+    const hostawayReady = !!(process.env.HOSTAWAY_ACCOUNT_ID && process.env.HOSTAWAY_API_KEY);
+    const cauceoReady = !!process.env.CAUCEO_API_KEY;
+    if (!hostawayReady && !cauceoReady) {
+      this.logger.log('Neither Hostaway nor Cauceo credentials set; skipping availability sweep');
       return;
     }
     this.running = true;
     try {
       const result = await this.runSweep();
       this.logger.log(
-        `Hostaway availability sweep done: rented=${result.rented} available=${result.available} blocks=${result.blocks}`,
+        `Availability sweep done: rented=${result.rented} available=${result.available} blocks=${result.blocks} viaCauceo=${result.viaCauceo}`,
       );
     } catch (err) {
-      this.logger.error(`Hostaway sweep failed: ${(err as Error).message}`);
+      this.logger.error(`Availability sweep failed: ${(err as Error).message}`);
     } finally {
       this.running = false;
     }
@@ -63,9 +81,12 @@ export class HostawayAvailabilityScheduler {
     return this.runSweep();
   }
 
-  private async runSweep(): Promise<{ rented: number; available: number; blocks: number }> {
-    const token = await this.getToken();
-
+  private async runSweep(): Promise<{
+    rented: number;
+    available: number;
+    blocks: number;
+    viaCauceo: number;
+  }> {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     const startStr = today.toISOString().slice(0, 10);
@@ -81,14 +102,24 @@ export class HostawayAvailabilityScheduler {
     let rented = 0;
     let available = 0;
     let totalBlocks = 0;
+    let viaCauceoCount = 0;
+    let token: string | null = null;
 
     for (const prop of properties) {
       const hostawayId = prop.code.slice(3);
+      const viaCauceo = this.usesCauceo(hostawayId);
       let days: CalendarDay[] = [];
       try {
-        days = await this.fetchCalendar(token, hostawayId, startStr, endStr);
+        if (viaCauceo) {
+          days = await this.fetchCauceoCalendar(hostawayId, startStr, endStr);
+        } else {
+          token = token ?? (await this.getToken());
+          days = await this.fetchCalendar(token, hostawayId, startStr, endStr);
+        }
       } catch (err) {
-        this.logger.warn(`${prop.code} calendar fetch failed: ${(err as Error).message}`);
+        this.logger.warn(
+          `${prop.code} calendar fetch failed (${viaCauceo ? 'cauceo' : 'hostaway'}): ${(err as Error).message}`,
+        );
         continue;
       }
 
@@ -97,7 +128,7 @@ export class HostawayAvailabilityScheduler {
       const isRentedNow = availableNext7 < 3;
 
       await this.prisma.propertyAvailabilityBlock.deleteMany({
-        where: { propertyId: prop.id, reason: SYNC_REASON },
+        where: { propertyId: prop.id, reason: { in: SYNC_REASONS } },
       });
       if (ranges.length > 0) {
         await this.prisma.propertyAvailabilityBlock.createMany({
@@ -105,7 +136,7 @@ export class HostawayAvailabilityScheduler {
             propertyId: prop.id,
             startsAt: new Date(`${r.start}T00:00:00Z`),
             endsAt: new Date(`${r.end}T23:59:59Z`),
-            reason: SYNC_REASON,
+            reason: viaCauceo ? CAUCEO_REASON : HOSTAWAY_REASON,
           })),
         });
         totalBlocks += ranges.length;
@@ -120,9 +151,20 @@ export class HostawayAvailabilityScheduler {
       });
       if (isRentedNow) rented++;
       else available++;
+      if (viaCauceo) viaCauceoCount++;
     }
 
-    return { rented, available, blocks: totalBlocks };
+    return { rented, available, blocks: totalBlocks, viaCauceo: viaCauceoCount };
+  }
+
+  private usesCauceo(hostawayId: string): boolean {
+    if (!process.env.CAUCEO_API_KEY) return false;
+    if (process.env.RENTFLOW_AVAIL_SOURCE === 'cauceo') return true;
+    const units = (process.env.RENTFLOW_CAUCEO_UNITS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return units.includes(hostawayId);
   }
 
   private async getToken(): Promise<string> {
@@ -149,6 +191,22 @@ export class HostawayAvailabilityScheduler {
     if (!res.ok) throw new Error(`calendar ${res.status}`);
     const json = (await res.json()) as { result: CalendarDay[] };
     return json.result ?? [];
+  }
+
+  private async fetchCauceoCalendar(hostawayId: string, start: string, end: string): Promise<CalendarDay[]> {
+    const base = process.env.CAUCEO_API_BASE || CAUCEO_BASE_DEFAULT;
+    const res = await fetch(`${base}/api/v1/calendar/${hostawayId}?from=${start}&to=${end}`, {
+      headers: { Authorization: `Bearer ${process.env.CAUCEO_API_KEY}` },
+    });
+    if (!res.ok) throw new Error(`cauceo calendar ${res.status}`);
+    const json = (await res.json()) as { days?: CauceoCalendarDay[] };
+    // 'unknown' (day without a row in Cauceo) counts as unavailable: for
+    // long-stay conversion, over-offering is costlier than under-offering.
+    return (json.days ?? []).map((d) => ({
+      date: d.date,
+      isAvailable: d.status === 'available' ? 1 : 0,
+      status: d.status,
+    }));
   }
 
   private coalesceUnavailable(days: CalendarDay[]): Range[] {
