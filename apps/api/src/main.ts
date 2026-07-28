@@ -36,6 +36,21 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
+  // SEO: this is an internal ops API — nothing here should ever be indexed.
+  // Google was indexing /public/files/<uuid> images and /t/<code> tracking
+  // links (GSC "Rastreada: actualmente sin indexar", 2026-07, ~30 URLs of
+  // rentflow-api.rentalho.com polluting the rentalho.com domain property).
+  // X-Robots-Tag on every response + a robots.txt that disallows all is the
+  // root fix: crawlers drop the URLs and never re-crawl the tracking links.
+  app.use((req: { path: string }, res: { setHeader: (k: string, v: string) => void; type: (t: string) => { send: (b: string) => void } }, next: () => void) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    if (req.path === '/robots.txt') {
+      res.type('text/plain').send('User-agent: *\nDisallow: /\n');
+      return;
+    }
+    next();
+  });
+
   app.setGlobalPrefix('', { exclude: ['/health', '/webhooks/(.*)'] });
   app.enableCors({
     origin: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3000').split(',').map((s) => s.trim()),
