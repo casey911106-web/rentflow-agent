@@ -242,12 +242,11 @@ Ver `/Users/CARLOS/VAs/AUTH.md`. Servicios este repo:
 ## Skills, plugins y MCPs útiles
 
 **Skills frecuentes:**
-- Backend / DB: `claude-api`, `revops` (consultivo)
-- UI (apps/web): `frontend-design`, `ui-styling`, `ui-ux-pro-max`, `design-system`
+- Backend / DB: `claude-api`
+- UI (apps/web): `frontend-design`
 - UI (apps/mobile): igual + verificación de RN nuevas vs RN 0.81
-- Conversion / Marketing (alineado con norte top-funnel): `lead-magnets`, `copywriting`, `social-content`, `paid-ads`, `ad-creative`, `marketing-ideas`, `customer-research`
-- Lead/sales: `cold-email`, `email-sequence`, `sales-enablement`
-- Compliance ligero: NO `seo-audit`/enterprise; el norte es leads, no SEO técnico.
+- Bugs: `systematic-debugging` (copia local en `~/.claude/skills/`)
+- Paquetes de skills de marketing (38), diseño `ckm` (6) y `ui-ux-pro-max`: **archivados el 26-11-2026** en `~/.claude/_archive/skills-2026-11-26/` (0 usos en 35 días). Para uno puntual: moverlo de vuelta a `~/.claude/skills/`.
 - Verificación: `verify` antes de declarar terminado
 
 **MCPs típicos:**
@@ -257,13 +256,13 @@ Ver `/Users/CARLOS/VAs/AUTH.md`. Servicios este repo:
 
 **Workflow — NO ceremony (regla dura, ver WORKSPACE.md §"Procesos PROHIBIDOS"):**
 
-- ⛔ **NO uses** `superpowers:writing-plans`, `superpowers:execute-plan`, `superpowers:subagent-driven-development`, `superpowers:brainstorming` salvo orden explícita de Carlos. (Pese a que `docs/superpowers/{plans,specs}/` existe en el repo, **eso son docs viejos**, no licencia para invocar la skill.)
+- Plugin `superpowers` **desactivado el 26-11-2026**. `docs/superpowers/{plans,specs}/` son docs viejos.
 - ⛔ **NO uses TodoWrite** por reflejo. Features cross-app (api ↔ web ↔ mobile) NO requieren plan generado por la skill; el patrón directo funciona.
 - ✅ Patrón correcto: leer → editar → typecheck (turbo) → `bash deploy.sh` (push + ssh-and-run).
 - ✅ Si la tarea cruza apps (api + web + mobile) Y cambia contratos: avisar y pedir confirmación antes.
 - Ver [[skip-superpowers-ceremony]].
 
-## Memorias claude-mem clave de este repo
+## Memorias clave de este repo
 
 Estrategia y producto: [[rentflow-north-2026-05-24]]
 Contexto comparativo (WABA RentalHo, NO RentFlow): [[rentalho-meta-whatsapp-ids]]
