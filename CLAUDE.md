@@ -246,7 +246,7 @@ Ver `/Users/CARLOS/VAs/AUTH.md`. Servicios este repo:
 - UI (apps/web): `frontend-design`
 - UI (apps/mobile): igual + verificación de RN nuevas vs RN 0.81
 - Bugs: `systematic-debugging` (copia local en `~/.claude/skills/`)
-- Paquetes de skills de marketing (38), diseño `ckm` (6) y `ui-ux-pro-max`: **archivados el 26-11-2026** en `~/.claude/_archive/skills-2026-11-26/` (0 usos en 35 días). Para uno puntual: moverlo de vuelta a `~/.claude/skills/`.
+- Skills de marketing/diseño sin uso (salvo `ai-seo` y `copywriting`) **archivadas el 26-11-2026** en `~/.claude/_archive/skills-2026-11-26/`. Para usar una: `mv ~/.claude/_archive/skills-2026-11-26/<nombre> ~/.claude/skills/`.
 - Verificación: `verify` antes de declarar terminado
 
 **MCPs típicos:**
